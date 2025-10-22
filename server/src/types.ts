@@ -25,6 +25,7 @@ export interface AgentHealth {
 }
 
 export interface AgentStats {
+  property_count?: number;
   publisher_count?: number;
   publishers?: string[];
   creative_formats?: number;

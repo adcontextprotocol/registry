@@ -4,6 +4,8 @@ import { fileURLToPath } from "url";
 import { Registry } from "./registry.js";
 import { AgentValidator } from "./validator.js";
 import { HealthChecker } from "./health.js";
+import { CrawlerService } from "./crawler.js";
+import { getPropertyIndex } from "./property-types.js";
 import type { AgentType, AgentWithStats } from "./types.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -14,12 +16,14 @@ export class HTTPServer {
   private registry: Registry;
   private validator: AgentValidator;
   private healthChecker: HealthChecker;
+  private crawler: CrawlerService;
 
   constructor() {
     this.app = express();
     this.registry = new Registry();
     this.validator = new AgentValidator();
     this.healthChecker = new HealthChecker();
+    this.crawler = new CrawlerService();
     this.setupMiddleware();
     this.setupRoutes();
   }
@@ -92,6 +96,60 @@ export class HTTPServer {
       }
     });
 
+    // Property lookup endpoints
+    this.app.get("/api/lookup/property", (req, res) => {
+      const { type, value } = req.query;
+
+      if (!type || !value) {
+        return res.status(400).json({
+          error: "Missing required query params: type and value",
+        });
+      }
+
+      const index = getPropertyIndex();
+      const agents = index.findAgentsForProperty(
+        type as string,
+        value as string
+      );
+
+      res.json({
+        type,
+        value,
+        agents,
+        count: agents.length,
+      });
+    });
+
+    this.app.get("/api/agents/:id/properties", (req, res) => {
+      const agentId = req.params.id;
+      const agent = this.registry.getAgent(agentId);
+
+      if (!agent) {
+        return res.status(404).json({ error: "Agent not found" });
+      }
+
+      const index = getPropertyIndex();
+      const auth = index.getAgentAuthorizations(agent.url);
+
+      res.json({
+        agent_id: agentId,
+        agent_url: auth.agent_url,
+        properties: auth.properties,
+        count: auth.properties.length,
+      });
+    });
+
+    // Crawler endpoints
+    this.app.post("/api/crawler/run", async (req, res) => {
+      const agents = this.registry.listAgents("sales");
+      const result = await this.crawler.crawlAllAgents(agents);
+      res.json(result);
+    });
+
+    this.app.get("/api/crawler/status", (req, res) => {
+      res.json(this.crawler.getStatus());
+    });
+
     this.app.get("/api/stats", (req, res) => {
       const agents = this.registry.listAgents();
       const byType = {
@@ -115,6 +173,13 @@ export class HTTPServer {
 
   async start(port: number = 3000): Promise<void> {
     await this.registry.load();
+
+    // Start periodic property crawler for sales agents
+    const salesAgents = this.registry.listAgents("sales");
+    if (salesAgents.length > 0) {
+      console.log(`Starting property crawler for ${salesAgents.length} sales agents...`);
+      this.crawler.startPeriodicCrawl(salesAgents, 60); // Crawl every 60 minutes
+    }
 
     this.app.listen(port, () => {
       console.log(`AdCP Registry HTTP server running on port ${port}`);

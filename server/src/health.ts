@@ -1,6 +1,7 @@
 import type { Agent, AgentHealth, AgentStats } from "./types.js";
 import { Cache } from "./cache.js";
 import { createMCPClient, createA2AClient } from "@adcp/client";
+import { getPropertyIndex } from "./property-types.js";
 
 export class HealthChecker {
   private healthCache: Cache<AgentHealth>;
@@ -147,30 +148,16 @@ export class HealthChecker {
 
     try {
       if (agent.type === "sales") {
-        // For sales agents, try to get publisher list from list_authorized_properties tool
-        try {
-          const client = createMCPClient(agent.mcp_endpoint);
-          const result = await client.callTool("list_authorized_properties", {});
+        // Use PropertyIndex if available (populated by crawler)
+        const index = getPropertyIndex();
+        const auth = index.getAgentAuthorizations(agent.url);
 
-          if (result?.properties && Array.isArray(result.properties)) {
-            const publishers = result.properties.map((p: any) => p.domain || p.name);
-            stats.publishers = publishers;
-            stats.publisher_count = publishers.length;
-          }
-        } catch {
-          // Fallback: try to fetch from agent's own adagents.json
-          const adagentsUrl = `${agent.url}/.well-known/adagents.json`;
-          const response = await fetch(adagentsUrl, {
-            signal: AbortSignal.timeout(5000),
-          });
-
-          if (response.ok) {
-            const data = (await response.json()) as { represents?: string[] };
-            if (data.represents && Array.isArray(data.represents)) {
-              stats.publishers = data.represents;
-              stats.publisher_count = data.represents.length;
-            }
-          }
+        if (auth.properties.length > 0) {
+          stats.property_count = auth.properties.length;
+          stats.publishers = auth.properties
+            .map((p: any) => p.publisher_domain)
+            .filter((d: string, i: number, arr: string[]) => arr.indexOf(d) === i); // unique
+          stats.publisher_count = stats.publishers.length;
         }
       } else if (agent.type === "creative") {
         // For creative agents, get format count from list_creative_formats tool
