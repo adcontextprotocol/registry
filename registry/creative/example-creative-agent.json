@@ -1,0 +1,19 @@
+{
+  "$schema": "https://adcontextprotocol.org/schemas/v1/agent.json",
+  "name": "Example Creative Agent",
+  "url": "https://creative.example.com",
+  "type": "creative",
+  "description": "An example creative agent for demonstration purposes",
+  "capabilities": [
+    "generate_ad_copy",
+    "create_banner_ads",
+    "optimize_creative"
+  ],
+  "mcp_endpoint": "https://creative.example.com/mcp",
+  "contact": {
+    "name": "Example Team",
+    "email": "hello@example.com",
+    "website": "https://example.com"
+  },
+  "added_date": "2025-01-22"
+}

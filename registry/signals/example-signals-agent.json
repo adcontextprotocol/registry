@@ -1,0 +1,19 @@
+{
+  "$schema": "https://adcontextprotocol.org/schemas/v1/agent.json",
+  "name": "Example Signals Agent",
+  "url": "https://signals.example.com",
+  "type": "signals",
+  "description": "An example signals/audience agent for demonstration purposes",
+  "capabilities": [
+    "audience_discovery",
+    "signal_activation",
+    "cross_platform_targeting"
+  ],
+  "mcp_endpoint": "https://signals.example.com/mcp",
+  "contact": {
+    "name": "Example Team",
+    "email": "hello@example.com",
+    "website": "https://example.com"
+  },
+  "added_date": "2025-01-22"
+}
