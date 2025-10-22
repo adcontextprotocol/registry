@@ -3,7 +3,8 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { Registry } from "./registry.js";
 import { AgentValidator } from "./validator.js";
-import type { AgentType } from "./types.js";
+import { HealthChecker } from "./health.js";
+import type { AgentType, AgentWithStats } from "./types.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -12,11 +13,13 @@ export class HTTPServer {
   private app: express.Application;
   private registry: Registry;
   private validator: AgentValidator;
+  private healthChecker: HealthChecker;
 
   constructor() {
     this.app = express();
     this.registry = new Registry();
     this.validator = new AgentValidator();
+    this.healthChecker = new HealthChecker();
     this.setupMiddleware();
     this.setupRoutes();
   }
@@ -28,18 +31,46 @@ export class HTTPServer {
 
   private setupRoutes(): void {
     // API endpoints
-    this.app.get("/api/agents", (req, res) => {
+    this.app.get("/api/agents", async (req, res) => {
       const type = req.query.type as AgentType | undefined;
+      const withHealth = req.query.health === "true";
       const agents = this.registry.listAgents(type);
-      res.json(agents);
+
+      if (!withHealth) {
+        return res.json(agents);
+      }
+
+      // Enrich with health and stats
+      const enriched = await Promise.all(
+        agents.map(async (agent): Promise<AgentWithStats> => {
+          const [health, stats] = await Promise.all([
+            this.healthChecker.checkHealth(agent),
+            this.healthChecker.getStats(agent),
+          ]);
+          return { ...agent, health, stats };
+        })
+      );
+
+      res.json(enriched);
     });
 
-    this.app.get("/api/agents/:name", (req, res) => {
+    this.app.get("/api/agents/:name", async (req, res) => {
       const agent = this.registry.getAgent(req.params.name);
       if (!agent) {
         return res.status(404).json({ error: "Agent not found" });
       }
-      res.json(agent);
+
+      const withHealth = req.query.health === "true";
+      if (!withHealth) {
+        return res.json(agent);
+      }
+
+      const [health, stats] = await Promise.all([
+        this.healthChecker.checkHealth(agent),
+        this.healthChecker.getStats(agent),
+      ]);
+
+      res.json({ ...agent, health, stats });
     });
 
     this.app.post("/api/validate", async (req, res) => {

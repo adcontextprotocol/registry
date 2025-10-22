@@ -36,7 +36,7 @@
         }
 
         .container {
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 2rem auto;
             padding: 0 1rem;
         }
@@ -68,87 +68,91 @@
             border-bottom-color: #667eea;
         }
 
-        .agents-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-            gap: 1.5rem;
-        }
-
-        .agent-card {
+        .table-container {
             background: white;
             border-radius: 8px;
-            padding: 1.5rem;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            transition: transform 0.2s, box-shadow 0.2s;
+            overflow: hidden;
         }
 
-        .agent-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        table {
+            width: 100%;
+            border-collapse: collapse;
         }
 
-        .agent-type {
-            display: inline-block;
-            padding: 0.25rem 0.75rem;
-            border-radius: 12px;
-            font-size: 0.75rem;
+        thead {
+            background: #f9fafb;
+        }
+
+        th {
+            text-align: left;
+            padding: 1rem;
             font-weight: 600;
-            text-transform: uppercase;
-            margin-bottom: 0.75rem;
+            color: #555;
+            border-bottom: 2px solid #e5e7eb;
         }
 
-        .agent-type.creative {
-            background: #fef3c7;
-            color: #92400e;
+        td {
+            padding: 1rem;
+            border-bottom: 1px solid #f3f4f6;
         }
 
-        .agent-type.signals {
-            background: #dbeafe;
-            color: #1e40af;
+        tr:hover {
+            background: #fafafa;
         }
 
-        .agent-type.sales {
-            background: #dcfce7;
-            color: #166534;
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 0.5rem;
+        }
+
+        .status-indicator.online {
+            background: #10b981;
+            box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
+        }
+
+        .status-indicator.offline {
+            background: #ef4444;
+            box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2);
+        }
+
+        .status-indicator.loading {
+            background: #f59e0b;
+            box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2);
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
         }
 
         .agent-name {
-            font-size: 1.25rem;
             font-weight: 600;
-            margin-bottom: 0.5rem;
             color: #111;
-        }
-
-        .agent-description {
-            color: #666;
-            margin-bottom: 1rem;
-            font-size: 0.95rem;
         }
 
         .agent-url {
             color: #667eea;
             text-decoration: none;
             font-size: 0.9rem;
-            display: inline-block;
-            margin-bottom: 1rem;
         }
 
         .agent-url:hover {
             text-decoration: underline;
         }
 
-        .capabilities {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.5rem;
+        .stat-number {
+            font-weight: 600;
+            color: #111;
         }
 
-        .capability {
-            background: #f3f4f6;
-            padding: 0.25rem 0.75rem;
-            border-radius: 4px;
-            font-size: 0.85rem;
-            color: #555;
+        .response-time {
+            color: #666;
+            font-size: 0.9rem;
         }
 
         .loading {
@@ -163,6 +167,30 @@
             padding: 1rem;
             border-radius: 4px;
             margin: 1rem 0;
+        }
+
+        .expand-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: #667eea;
+            font-size: 0.9rem;
+            padding: 0.25rem 0.5rem;
+        }
+
+        .expand-btn:hover {
+            text-decoration: underline;
+        }
+
+        .publishers-list {
+            margin-top: 0.5rem;
+            padding-left: 1rem;
+            font-size: 0.9rem;
+            color: #666;
+        }
+
+        .publishers-list li {
+            margin: 0.25rem 0;
         }
 
         footer {
@@ -196,7 +224,7 @@
             <button class="tab" data-type="sales">Sales</button>
         </div>
 
-        <div id="agents-container" class="agents-grid">
+        <div id="table-container" class="table-container">
             <div class="loading">Loading agents...</div>
         </div>
     </div>
@@ -211,21 +239,22 @@
     <script type="module">
         let allAgents = [];
         let currentType = 'all';
+        let expandedRows = new Set();
 
         async function loadAgents() {
             try {
-                const response = await fetch('/api/agents');
+                const response = await fetch('/api/agents?health=true');
                 if (!response.ok) throw new Error('Failed to load agents');
                 allAgents = await response.json();
-                renderAgents();
+                renderTable();
             } catch (error) {
-                document.getElementById('agents-container').innerHTML =
+                document.getElementById('table-container').innerHTML =
                     `<div class="error">Failed to load agents: ${error.message}</div>`;
             }
         }
 
-        function renderAgents() {
-            const container = document.getElementById('agents-container');
+        function renderTable() {
+            const container = document.getElementById('table-container');
             const filtered = currentType === 'all'
                 ? allAgents
                 : allAgents.filter(a => a.type === currentType);
@@ -235,20 +264,107 @@
                 return;
             }
 
-            container.innerHTML = filtered.map(agent => `
-                <div class="agent-card">
-                    <span class="agent-type ${agent.type}">${agent.type}</span>
-                    <div class="agent-name">${agent.name}</div>
-                    <div class="agent-description">${agent.description}</div>
-                    <a href="${agent.url}" target="_blank" class="agent-url">${agent.url}</a>
-                    <div class="capabilities">
-                        ${agent.capabilities.map(cap =>
-                            `<span class="capability">${cap}</span>`
-                        ).join('')}
-                    </div>
-                </div>
-            `).join('');
+            // Determine columns based on type
+            const isSales = filtered.every(a => a.type === 'sales');
+            const isCreative = filtered.every(a => a.type === 'creative');
+
+            let tableHTML = '<table><thead><tr>';
+            tableHTML += '<th>Status</th>';
+            tableHTML += '<th>Agent</th>';
+            tableHTML += '<th>Type</th>';
+
+            if (isSales) {
+                tableHTML += '<th>Publishers</th>';
+            } else if (isCreative) {
+                tableHTML += '<th>Formats</th>';
+            }
+
+            tableHTML += '<th>Response Time</th>';
+            tableHTML += '<th>Tools</th>';
+            tableHTML += '</tr></thead><tbody>';
+
+            filtered.forEach((agent, index) => {
+                const health = agent.health || {};
+                const stats = agent.stats || {};
+                const status = health.online ? 'online' : (health.checked_at ? 'offline' : 'loading');
+
+                tableHTML += '<tr>';
+
+                // Status
+                tableHTML += `<td><span class="status-indicator ${status}"></span></td>`;
+
+                // Agent
+                tableHTML += '<td>';
+                tableHTML += `<div class="agent-name">${agent.name}</div>`;
+                tableHTML += `<a href="${agent.url}" target="_blank" class="agent-url">${agent.url}</a>`;
+                tableHTML += '</td>';
+
+                // Type
+                tableHTML += `<td>${agent.type}</td>`;
+
+                // Type-specific stats
+                if (isSales) {
+                    const count = stats.publisher_count || 0;
+                    const publishers = stats.publishers || [];
+                    tableHTML += '<td>';
+                    if (count > 0) {
+                        tableHTML += `<span class="stat-number">${count}</span>`;
+                        if (publishers.length > 0) {
+                            tableHTML += ` <button class="expand-btn" onclick="togglePublishers(${index})">`;
+                            tableHTML += expandedRows.has(index) ? 'hide' : 'view';
+                            tableHTML += '</button>';
+                            if (expandedRows.has(index)) {
+                                tableHTML += '<ul class="publishers-list">';
+                                publishers.forEach(p => {
+                                    tableHTML += `<li>${p}</li>`;
+                                });
+                                tableHTML += '</ul>';
+                            }
+                        }
+                    } else {
+                        tableHTML += '-';
+                    }
+                    tableHTML += '</td>';
+                } else if (isCreative) {
+                    const formats = stats.creative_formats || 0;
+                    tableHTML += `<td>${formats > 0 ? `<span class="stat-number">${formats}</span>` : '-'}</td>`;
+                }
+
+                // Response time
+                tableHTML += '<td>';
+                if (health.response_time_ms) {
+                    tableHTML += `<span class="response-time">${health.response_time_ms}ms</span>`;
+                } else if (health.error) {
+                    tableHTML += `<span class="response-time" style="color: #ef4444">${health.error}</span>`;
+                } else {
+                    tableHTML += '-';
+                }
+                tableHTML += '</td>';
+
+                // Tools
+                tableHTML += '<td>';
+                if (health.tools_count) {
+                    tableHTML += `<span class="stat-number">${health.tools_count}</span>`;
+                } else {
+                    tableHTML += '-';
+                }
+                tableHTML += '</td>';
+
+                tableHTML += '</tr>';
+            });
+
+            tableHTML += '</tbody></table>';
+            container.innerHTML = tableHTML;
         }
+
+        window.togglePublishers = function(index) {
+            if (expandedRows.has(index)) {
+                expandedRows.delete(index);
+            } else {
+                expandedRows.add(index);
+            }
+            renderTable();
+        };
 
         // Tab switching
         document.querySelectorAll('.tab').forEach(tab => {
@@ -256,7 +372,8 @@
                 document.querySelector('.tab.active')?.classList.remove('active');
                 tab.classList.add('active');
                 currentType = tab.dataset.type;
-                renderAgents();
+                expandedRows.clear();
+                renderTable();
             });
         });
 

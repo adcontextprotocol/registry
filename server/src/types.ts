@@ -6,15 +6,33 @@ export interface Agent {
   url: string;
   type: AgentType;
   description: string;
-  capabilities: string[];
   mcp_endpoint: string;
-  represents?: string[];
   contact: {
     name: string;
     email: string;
     website: string;
   };
   added_date: string;
+}
+
+export interface AgentHealth {
+  online: boolean;
+  checked_at: string;
+  response_time_ms?: number;
+  tools_count?: number;
+  resources_count?: number;
+  error?: string;
+}
+
+export interface AgentStats {
+  publisher_count?: number;
+  publishers?: string[];
+  creative_formats?: number;
+}
+
+export interface AgentWithStats extends Agent {
+  health?: AgentHealth;
+  stats?: AgentStats;
 }
 
 export interface AdAgentsJson {
