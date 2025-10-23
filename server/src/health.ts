@@ -1,7 +1,6 @@
 import type { Agent, AgentHealth, AgentStats } from "./types.js";
 import { Cache } from "./cache.js";
-import { createMCPClient, createA2AClient } from "@adcp/client";
-import { getPropertyIndex } from "./property-types.js";
+import { createMCPClient, createA2AClient, getPropertyIndex } from "@adcp/client";
 
 export class HealthChecker {
   private healthCache: Cache<AgentHealth>;
@@ -152,12 +151,10 @@ export class HealthChecker {
         const index = getPropertyIndex();
         const auth = index.getAgentAuthorizations(agent.url);
 
-        if (auth.properties.length > 0) {
+        if (auth && auth.properties.length > 0) {
           stats.property_count = auth.properties.length;
-          stats.publishers = auth.properties
-            .map((p: any) => p.publisher_domain)
-            .filter((d: string, i: number, arr: string[]) => arr.indexOf(d) === i); // unique
-          stats.publisher_count = stats.publishers.length;
+          stats.publishers = auth.publisher_domains;
+          stats.publisher_count = auth.publisher_domains.length;
         }
       } else if (agent.type === "creative") {
         // For creative agents, get format count from list_creative_formats tool

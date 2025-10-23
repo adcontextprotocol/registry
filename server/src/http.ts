@@ -5,7 +5,7 @@ import { Registry } from "./registry.js";
 import { AgentValidator } from "./validator.js";
 import { HealthChecker } from "./health.js";
 import { CrawlerService } from "./crawler.js";
-import { getPropertyIndex } from "./property-types.js";
+import { getPropertyIndex } from "@adcp/client";
 import type { AgentType, AgentWithStats } from "./types.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -108,7 +108,7 @@ export class HTTPServer {
 
       const index = getPropertyIndex();
       const agents = index.findAgentsForProperty(
-        type as string,
+        type as any, // PropertyIdentifierType
         value as string
       );
 
@@ -131,10 +131,21 @@ export class HTTPServer {
       const index = getPropertyIndex();
       const auth = index.getAgentAuthorizations(agent.url);
 
+      if (!auth) {
+        return res.json({
+          agent_id: agentId,
+          agent_url: agent.url,
+          properties: [],
+          publisher_domains: [],
+          count: 0,
+        });
+      }
+
       res.json({
         agent_id: agentId,
         agent_url: auth.agent_url,
         properties: auth.properties,
+        publisher_domains: auth.publisher_domains,
         count: auth.properties.length,
       });
     });

@@ -1,29 +1,15 @@
 import type { Agent } from "./types.js";
-import type { AgentConfig, CrawlResult } from "./property-types.js";
-import { getPropertyIndex } from "./property-types.js";
-import { createMCPClient } from "@adcp/client";
+import { PropertyCrawler, getPropertyIndex, type AgentInfo, type CrawlResult } from "@adcp/client";
 
 export class CrawlerService {
+  private crawler: PropertyCrawler;
   private crawling: boolean = false;
   private lastCrawl: Date | null = null;
   private lastResult: CrawlResult | null = null;
   private intervalId: NodeJS.Timeout | null = null;
 
-  async crawlAgent(config: AgentConfig): Promise<any[]> {
-    try {
-      // Try MCP first
-      const client = createMCPClient(config.agent_url);
-      const result = await client.callTool("list_authorized_properties", {});
-
-      if (result?.properties && Array.isArray(result.properties)) {
-        return result.properties;
-      }
-
-      return [];
-    } catch (error) {
-      console.error(`Failed to crawl ${config.agent_url}:`, error);
-      throw error;
-    }
+  constructor() {
+    this.crawler = new PropertyCrawler();
   }
 
   async crawlAllAgents(agents: Agent[]): Promise<CrawlResult> {
@@ -35,56 +21,30 @@ export class CrawlerService {
     this.crawling = true;
     console.log(`Starting crawl of ${agents.length} agents...`);
 
-    const result: CrawlResult = {
-      totalProperties: 0,
-      successfulAgents: 0,
-      failedAgents: 0,
-      errors: [],
-    };
+    // Convert our Agent type to AgentInfo for the crawler
+    const agentInfos: AgentInfo[] = agents.map((agent) => ({
+      agent_url: agent.url,
+      protocol: "mcp" as const, // Default to MCP
+      publisher_domain: this.extractDomain(agent.url),
+    }));
 
-    const index = getPropertyIndex();
-    index.clear(); // Clear previous data
+    try {
+      const result = await this.crawler.crawlAgents(agentInfos);
 
-    // Crawl all agents in parallel
-    const crawlPromises = agents.map(async (agent) => {
-      const config: AgentConfig = {
-        agent_url: agent.url,
-        protocol: "mcp", // Default to MCP for now
-        publisher_domain: this.extractDomain(agent.url),
-      };
+      this.lastCrawl = new Date();
+      this.lastResult = result;
+      this.crawling = false;
 
-      try {
-        const properties = await this.crawlAgent(config);
-        index.addAgentProperties(agent.url, properties);
+      console.log(
+        `Crawl complete: ${result.totalProperties} properties from ${result.successfulAgents}/${agents.length} agents`
+      );
 
-        result.totalProperties += properties.length;
-        result.successfulAgents += 1;
-
-        console.log(
-          `✅ Crawled ${agent.name}: ${properties.length} properties`
-        );
-      } catch (error) {
-        result.failedAgents += 1;
-        result.errors.push({
-          agent_url: agent.url,
-          error: error instanceof Error ? error.message : "Unknown error",
-        });
-
-        console.error(`❌ Failed to crawl ${agent.name}`);
-      }
-    });
-
-    await Promise.allSettled(crawlPromises);
-
-    this.lastCrawl = new Date();
-    this.lastResult = result;
-    this.crawling = false;
-
-    console.log(
-      `Crawl complete: ${result.totalProperties} properties from ${result.successfulAgents}/${agents.length} agents`
-    );
-
-    return result;
+      return result;
+    } catch (error) {
+      console.error("Crawl failed:", error);
+      this.crawling = false;
+      throw error;
+    }
   }
 
   startPeriodicCrawl(agents: Agent[], intervalMinutes: number = 60) {
@@ -108,11 +68,13 @@ export class CrawlerService {
   }
 
   getStatus() {
+    const index = getPropertyIndex();
+    const stats = index.getStats();
     return {
       crawling: this.crawling,
       lastCrawl: this.lastCrawl?.toISOString() || null,
       lastResult: this.lastResult,
-      indexStats: getPropertyIndex().getStats(),
+      indexStats: stats,
     };
   }
 
@@ -128,6 +90,7 @@ export class CrawlerService {
   private emptyResult(): CrawlResult {
     return {
       totalProperties: 0,
+      totalPublisherDomains: 0,
       successfulAgents: 0,
       failedAgents: 0,
       errors: [],
