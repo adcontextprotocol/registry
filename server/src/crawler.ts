@@ -24,7 +24,7 @@ export class CrawlerService {
     // Convert our Agent type to AgentInfo for the crawler
     const agentInfos: AgentInfo[] = agents.map((agent) => ({
       agent_url: agent.url,
-      protocol: "mcp" as const, // Default to MCP
+      protocol: agent.protocol || "mcp", // Use agent's protocol, default to MCP
       publisher_domain: this.extractDomain(agent.url),
     }));
 

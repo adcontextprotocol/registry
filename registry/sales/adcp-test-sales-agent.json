@@ -2,6 +2,7 @@
   "name": "AdCP Test Sales Agent",
   "url": "https://test-agent.adcontextprotocol.org",
   "type": "sales",
+  "protocol": "a2a",
   "description": "Test implementation of an AdCP media sales agent",
   "mcp_endpoint": "https://test-agent.adcontextprotocol.org",
   "contact": {

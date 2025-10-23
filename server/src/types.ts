@@ -5,6 +5,7 @@ export interface Agent {
   name: string;
   url: string;
   type: AgentType;
+  protocol?: "mcp" | "a2a";
   description: string;
   mcp_endpoint: string;
   contact: {
