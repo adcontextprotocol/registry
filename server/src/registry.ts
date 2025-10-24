@@ -5,7 +5,7 @@ import type { Agent, AgentType } from "./types.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const REGISTRY_ROOT = path.join(__dirname, "../../registry");
+const REGISTRY_ROOT = path.join(__dirname, "../registry");
 
 export class Registry {
   private agents: Map<string, Agent> = new Map();

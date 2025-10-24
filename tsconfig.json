@@ -10,7 +10,7 @@
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "outDir": "./dist",
-    "rootDir": ".",
+    "rootDir": "./server/src",
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true
