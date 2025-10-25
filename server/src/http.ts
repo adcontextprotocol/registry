@@ -5,6 +5,8 @@ import { Registry } from "./registry.js";
 import { AgentValidator } from "./validator.js";
 import { HealthChecker } from "./health.js";
 import { CrawlerService } from "./crawler.js";
+import { CapabilityDiscovery } from "./capabilities.js";
+import { PublisherTracker } from "./publishers.js";
 import { getPropertyIndex } from "@adcp/client";
 import type { AgentType, AgentWithStats } from "./types.js";
 
@@ -17,6 +19,8 @@ export class HTTPServer {
   private validator: AgentValidator;
   private healthChecker: HealthChecker;
   private crawler: CrawlerService;
+  private capabilityDiscovery: CapabilityDiscovery;
+  private publisherTracker: PublisherTracker;
 
   constructor() {
     this.app = express();
@@ -24,6 +28,8 @@ export class HTTPServer {
     this.validator = new AgentValidator();
     this.healthChecker = new HealthChecker();
     this.crawler = new CrawlerService();
+    this.capabilityDiscovery = new CapabilityDiscovery();
+    this.publisherTracker = new PublisherTracker();
     this.setupMiddleware();
     this.setupRoutes();
   }
@@ -38,20 +44,59 @@ export class HTTPServer {
     this.app.get("/api/agents", async (req, res) => {
       const type = req.query.type as AgentType | undefined;
       const withHealth = req.query.health === "true";
+      const withCapabilities = req.query.capabilities === "true";
       const agents = this.registry.listAgents(type);
 
-      if (!withHealth) {
+      if (!withHealth && !withCapabilities) {
         return res.json(agents);
       }
 
-      // Enrich with health and stats
+      // Enrich with health, stats, and optionally capabilities
       const enriched = await Promise.all(
         agents.map(async (agent): Promise<AgentWithStats> => {
-          const [health, stats] = await Promise.all([
-            this.healthChecker.checkHealth(agent),
-            this.healthChecker.getStats(agent),
-          ]);
-          return { ...agent, health, stats };
+          const promises = [];
+
+          if (withHealth) {
+            promises.push(
+              this.healthChecker.checkHealth(agent),
+              this.healthChecker.getStats(agent)
+            );
+          }
+
+          if (withCapabilities) {
+            promises.push(
+              this.capabilityDiscovery.discoverCapabilities(agent)
+            );
+          }
+
+          const results = await Promise.all(promises);
+
+          const enrichedAgent: AgentWithStats = { ...agent };
+
+          if (withHealth) {
+            enrichedAgent.health = results[0] as any;
+            enrichedAgent.stats = results[1] as any;
+
+            if (withCapabilities) {
+              const capProfile = results[2] as any;
+              enrichedAgent.capabilities = {
+                tools_count: capProfile.discovered_tools.length,
+                standard_operations: capProfile.standard_operations,
+                creative_capabilities: capProfile.creative_capabilities,
+                signals_capabilities: capProfile.signals_capabilities,
+              };
+            }
+          } else if (withCapabilities) {
+            const capProfile = results[0] as any;
+            enrichedAgent.capabilities = {
+              tools_count: capProfile.discovered_tools.length,
+              standard_operations: capProfile.standard_operations,
+              creative_capabilities: capProfile.creative_capabilities,
+              signals_capabilities: capProfile.signals_capabilities,
+            };
+          }
+
+          return enrichedAgent;
         })
       );
 
@@ -174,6 +219,118 @@ export class HTTPServer {
         by_type: byType,
         cache: this.validator.getCacheStats(),
       });
+    });
+
+    // Capability endpoints
+    this.app.get("/api/agents/:id/capabilities", async (req, res) => {
+      const agentId = req.params.id;
+      const agent = this.registry.getAgent(agentId);
+
+      if (!agent) {
+        return res.status(404).json({ error: "Agent not found" });
+      }
+
+      try {
+        const profile = await this.capabilityDiscovery.discoverCapabilities(agent);
+        res.json(profile);
+      } catch (error) {
+        res.status(500).json({
+          error: error instanceof Error ? error.message : "Capability discovery failed",
+        });
+      }
+    });
+
+    this.app.post("/api/capabilities/discover-all", async (req, res) => {
+      const agents = this.registry.listAgents();
+      try {
+        const profiles = await this.capabilityDiscovery.discoverAll(agents);
+        res.json({
+          total: profiles.size,
+          profiles: Array.from(profiles.values()),
+        });
+      } catch (error) {
+        res.status(500).json({
+          error: error instanceof Error ? error.message : "Bulk discovery failed",
+        });
+      }
+    });
+
+    // Publisher endpoints
+    this.app.get("/api/publishers", async (req, res) => {
+      const agents = this.registry.listAgents("sales");
+      try {
+        const statuses = await this.publisherTracker.trackPublishers(agents);
+        res.json({
+          total: statuses.size,
+          publishers: Array.from(statuses.values()),
+          stats: this.publisherTracker.getDeploymentStats(),
+        });
+      } catch (error) {
+        res.status(500).json({
+          error: error instanceof Error ? error.message : "Publisher tracking failed",
+        });
+      }
+    });
+
+    this.app.get("/api/publishers/:domain", async (req, res) => {
+      const domain = req.params.domain;
+      const agents = this.registry.listAgents("sales");
+
+      // Find agents claiming this domain
+      const expectedAgents = agents
+        .filter((a) => {
+          try {
+            const url = new URL(a.url);
+            return url.hostname === domain;
+          } catch {
+            return false;
+          }
+        })
+        .map((a) => a.url);
+
+      try {
+        const status = await this.publisherTracker.checkPublisher(domain, expectedAgents);
+        res.json(status);
+      } catch (error) {
+        res.status(500).json({
+          error: error instanceof Error ? error.message : "Publisher check failed",
+        });
+      }
+    });
+
+    this.app.get("/api/publishers/:domain/validation", async (req, res) => {
+      const domain = req.params.domain;
+      const agents = this.registry.listAgents("sales");
+
+      const expectedAgents = agents
+        .filter((a) => {
+          try {
+            const url = new URL(a.url);
+            return url.hostname === domain;
+          } catch {
+            return false;
+          }
+        })
+        .map((a) => a.url);
+
+      try {
+        const status = await this.publisherTracker.checkPublisher(domain, expectedAgents);
+        res.json({
+          domain: status.domain,
+          deployment_status: status.deployment_status,
+          issues: status.issues,
+          coverage_percentage: status.coverage_percentage,
+          recommended_actions: status.issues.map((issue) => ({
+            issue: issue.message,
+            fix: issue.fix,
+            severity: issue.severity,
+          })),
+        });
+      } catch (error) {
+        res.status(500).json({
+          error: error instanceof Error ? error.message : "Validation failed",
+        });
+      }
     });
 
     // Health check

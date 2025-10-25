@@ -32,9 +32,34 @@ export interface AgentStats {
   creative_formats?: number;
 }
 
+export interface AgentCapabilities {
+  tools_count: number;
+  standard_operations?: {
+    can_search_inventory: boolean;
+    can_get_availability: boolean;
+    can_reserve_inventory: boolean;
+    can_get_pricing: boolean;
+    can_create_order: boolean;
+    can_list_properties: boolean;
+  };
+  creative_capabilities?: {
+    formats_supported: string[];
+    can_generate: boolean;
+    can_validate: boolean;
+    can_preview: boolean;
+  };
+  signals_capabilities?: {
+    audience_types: string[];
+    can_match: boolean;
+    can_activate: boolean;
+    can_get_signals: boolean;
+  };
+}
+
 export interface AgentWithStats extends Agent {
   health?: AgentHealth;
   stats?: AgentStats;
+  capabilities?: AgentCapabilities;
 }
 
 export interface AdAgentsJson {
