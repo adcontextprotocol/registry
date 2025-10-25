@@ -335,9 +335,7 @@ export class HTTPServer {
       }
     });
 
-    // Simple agent discovery endpoint - plain REST API
-    // This is the easiest way for apps to discover all public AdCP agents
-    // No MCP protocol needed - just a simple HTTP GET
+    // Simple REST API endpoint - for web apps and quick integrations
     this.app.get("/agents", async (req, res) => {
       const type = req.query.type as AgentType | undefined;
       const agents = this.registry.listAgents(type);
@@ -351,6 +349,178 @@ export class HTTPServer {
           sales: agents.filter(a => a.type === "sales").length,
         }
       });
+    });
+
+    // MCP endpoint - for AI agents to discover other agents
+    // This makes the registry itself an MCP server that can be queried by other agents
+    this.app.post("/mcp", async (req, res) => {
+      const { method, params, id } = req.body;
+
+      try {
+        // Handle MCP tools/list request
+        if (method === "tools/list") {
+          res.json({
+            jsonrpc: "2.0",
+            id,
+            result: {
+              tools: [
+                {
+                  name: "list_agents",
+                  description: "List all registered AdCP agents, optionally filtered by type",
+                  inputSchema: {
+                    type: "object",
+                    properties: {
+                      type: {
+                        type: "string",
+                        enum: ["creative", "signals", "sales"],
+                        description: "Optional: Filter by agent type",
+                      },
+                    },
+                  },
+                },
+                {
+                  name: "get_agent",
+                  description: "Get details for a specific agent by ID",
+                  inputSchema: {
+                    type: "object",
+                    properties: {
+                      id: {
+                        type: "string",
+                        description: "Agent identifier (e.g., 'creative/4dvertible-creative-agent')",
+                      },
+                    },
+                    required: ["id"],
+                  },
+                },
+                {
+                  name: "find_agents_for_property",
+                  description: "Find which agents can sell a specific property",
+                  inputSchema: {
+                    type: "object",
+                    properties: {
+                      property_type: {
+                        type: "string",
+                        description: "Property identifier type (e.g., 'domain', 'app_id')",
+                      },
+                      property_value: {
+                        type: "string",
+                        description: "Property identifier value (e.g., 'nytimes.com')",
+                      },
+                    },
+                    required: ["property_type", "property_value"],
+                  },
+                },
+              ],
+            },
+          });
+          return;
+        }
+
+        // Handle MCP tools/call request
+        if (method === "tools/call") {
+          const { name, arguments: args } = params;
+
+          if (name === "list_agents") {
+            const type = args?.type as AgentType | undefined;
+            const agents = this.registry.listAgents(type);
+            res.json({
+              jsonrpc: "2.0",
+              id,
+              result: {
+                content: [
+                  {
+                    type: "text",
+                    text: JSON.stringify({ agents, count: agents.length }, null, 2),
+                  },
+                ],
+              },
+            });
+            return;
+          }
+
+          if (name === "get_agent") {
+            const agentId = args?.id as string;
+            const agent = this.registry.getAgent(agentId);
+            if (!agent) {
+              res.json({
+                jsonrpc: "2.0",
+                id,
+                error: {
+                  code: -32602,
+                  message: "Agent not found",
+                },
+              });
+              return;
+            }
+            res.json({
+              jsonrpc: "2.0",
+              id,
+              result: {
+                content: [
+                  {
+                    type: "text",
+                    text: JSON.stringify(agent, null, 2),
+                  },
+                ],
+              },
+            });
+            return;
+          }
+
+          if (name === "find_agents_for_property") {
+            const propertyType = args?.property_type as string;
+            const propertyValue = args?.property_value as string;
+            const index = getPropertyIndex();
+            const agents = index.findAgentsForProperty(propertyType as any, propertyValue);
+            res.json({
+              jsonrpc: "2.0",
+              id,
+              result: {
+                content: [
+                  {
+                    type: "text",
+                    text: JSON.stringify(
+                      { property_type: propertyType, property_value: propertyValue, agents, count: agents.length },
+                      null,
+                      2
+                    ),
+                  },
+                ],
+              },
+            });
+            return;
+          }
+
+          res.json({
+            jsonrpc: "2.0",
+            id,
+            error: {
+              code: -32601,
+              message: "Unknown tool",
+            },
+          });
+          return;
+        }
+
+        // Unknown method
+        res.json({
+          jsonrpc: "2.0",
+          id,
+          error: {
+            code: -32601,
+            message: "Method not found",
+          },
+        });
+      } catch (error: any) {
+        res.json({
+          jsonrpc: "2.0",
+          id,
+          error: {
+            code: -32603,
+            message: error?.message || "Internal error",
+          },
+        });
+      }
     });
 
     // Health check
