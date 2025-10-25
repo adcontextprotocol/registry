@@ -30,6 +30,7 @@ export class HTTPServer {
     this.crawler = new CrawlerService();
     this.capabilityDiscovery = new CapabilityDiscovery();
     this.publisherTracker = new PublisherTracker();
+
     this.setupMiddleware();
     this.setupRoutes();
   }
@@ -38,6 +39,7 @@ export class HTTPServer {
     this.app.use(express.json());
     this.app.use(express.static(path.join(__dirname, "../public")));
   }
+
 
   private setupRoutes(): void {
     // API endpoints
@@ -331,6 +333,27 @@ export class HTTPServer {
           error: error instanceof Error ? error.message : "Validation failed",
         });
       }
+    });
+
+    // MCP-compatible endpoint - returns agent list in MCP tool format
+    // This allows other agents/apps to discover all public AdCP agents
+    this.app.get("/mcp/agents", async (req, res) => {
+      const type = req.query.type as AgentType | undefined;
+      const agents = this.registry.listAgents(type);
+
+      res.json({
+        jsonrpc: "2.0",
+        id: 1,
+        result: {
+          agents,
+          count: agents.length,
+          by_type: {
+            creative: agents.filter(a => a.type === "creative").length,
+            signals: agents.filter(a => a.type === "signals").length,
+            sales: agents.filter(a => a.type === "sales").length,
+          }
+        }
+      });
     });
 
     // Health check
