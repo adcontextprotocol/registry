@@ -335,23 +335,20 @@ export class HTTPServer {
       }
     });
 
-    // MCP-compatible endpoint - returns agent list in MCP tool format
-    // This allows other agents/apps to discover all public AdCP agents
-    this.app.get("/mcp/agents", async (req, res) => {
+    // Simple agent discovery endpoint - plain REST API
+    // This is the easiest way for apps to discover all public AdCP agents
+    // No MCP protocol needed - just a simple HTTP GET
+    this.app.get("/agents", async (req, res) => {
       const type = req.query.type as AgentType | undefined;
       const agents = this.registry.listAgents(type);
 
       res.json({
-        jsonrpc: "2.0",
-        id: 1,
-        result: {
-          agents,
-          count: agents.length,
-          by_type: {
-            creative: agents.filter(a => a.type === "creative").length,
-            signals: agents.filter(a => a.type === "signals").length,
-            sales: agents.filter(a => a.type === "sales").length,
-          }
+        agents,
+        count: agents.length,
+        by_type: {
+          creative: agents.filter(a => a.type === "creative").length,
+          signals: agents.filter(a => a.type === "signals").length,
+          sales: agents.filter(a => a.type === "sales").length,
         }
       });
     });
