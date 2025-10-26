@@ -22,14 +22,14 @@ export class HealthChecker {
 
   private async performHealthCheck(agent: Agent): Promise<AgentHealth> {
     const startTime = Date.now();
+    const protocol = agent.protocol || "mcp";
 
-    // Try MCP first (most common for AdCP agents)
-    const mcpHealth = await this.tryMCP(agent, startTime);
-    if (mcpHealth.online) return mcpHealth;
-
-    // If MCP fails, try A2A
-    const a2aHealth = await this.tryA2A(agent, startTime);
-    return a2aHealth;
+    // Only try the protocol the agent declares
+    if (protocol === "a2a") {
+      return await this.tryA2A(agent, startTime);
+    } else {
+      return await this.tryMCP(agent, startTime);
+    }
   }
 
   private async tryMCP(agent: Agent, startTime: number): Promise<AgentHealth> {

@@ -60,6 +60,8 @@ export interface AgentWithStats extends Agent {
   health?: AgentHealth;
   stats?: AgentStats;
   capabilities?: AgentCapabilities;
+  properties?: any[];
+  propertiesError?: string;
 }
 
 export interface AdAgentsJson {

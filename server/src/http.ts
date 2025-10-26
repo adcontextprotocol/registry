@@ -7,7 +7,8 @@ import { HealthChecker } from "./health.js";
 import { CrawlerService } from "./crawler.js";
 import { CapabilityDiscovery } from "./capabilities.js";
 import { PublisherTracker } from "./publishers.js";
-import { getPropertyIndex } from "@adcp/client";
+import { PropertiesService } from "./properties.js";
+import { getPropertyIndex, createMCPClient, createA2AClient } from "@adcp/client";
 import type { AgentType, AgentWithStats } from "./types.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -21,6 +22,7 @@ export class HTTPServer {
   private crawler: CrawlerService;
   private capabilityDiscovery: CapabilityDiscovery;
   private publisherTracker: PublisherTracker;
+  private propertiesService: PropertiesService;
 
   constructor() {
     this.app = express();
@@ -30,6 +32,7 @@ export class HTTPServer {
     this.crawler = new CrawlerService();
     this.capabilityDiscovery = new CapabilityDiscovery();
     this.publisherTracker = new PublisherTracker();
+    this.propertiesService = new PropertiesService();
 
     this.setupMiddleware();
     this.setupRoutes();
@@ -37,7 +40,12 @@ export class HTTPServer {
 
   private setupMiddleware(): void {
     this.app.use(express.json());
-    this.app.use(express.static(path.join(__dirname, "../public")));
+    // In production: __dirname is /app/dist, public is at /app/server/public
+    // In development: __dirname is /path/to/server/src, public is at ../public
+    const publicPath = process.env.NODE_ENV === 'production'
+      ? path.join(__dirname, "../server/public")
+      : path.join(__dirname, "../public");
+    this.app.use(express.static(publicPath));
   }
 
 
@@ -47,13 +55,14 @@ export class HTTPServer {
       const type = req.query.type as AgentType | undefined;
       const withHealth = req.query.health === "true";
       const withCapabilities = req.query.capabilities === "true";
+      const withProperties = req.query.properties === "true";
       const agents = this.registry.listAgents(type);
 
-      if (!withHealth && !withCapabilities) {
+      if (!withHealth && !withCapabilities && !withProperties) {
         return res.json(agents);
       }
 
-      // Enrich with health, stats, and optionally capabilities
+      // Enrich with health, stats, capabilities, and/or properties
       const enriched = await Promise.all(
         agents.map(async (agent): Promise<AgentWithStats> => {
           const promises = [];
@@ -71,31 +80,36 @@ export class HTTPServer {
             );
           }
 
+          if (withProperties && agent.type === "sales") {
+            promises.push(
+              this.propertiesService.getPropertiesForAgent(agent)
+            );
+          }
+
           const results = await Promise.all(promises);
 
           const enrichedAgent: AgentWithStats = { ...agent };
+          let resultIndex = 0;
 
           if (withHealth) {
-            enrichedAgent.health = results[0] as any;
-            enrichedAgent.stats = results[1] as any;
+            enrichedAgent.health = results[resultIndex++] as any;
+            enrichedAgent.stats = results[resultIndex++] as any;
+          }
 
-            if (withCapabilities) {
-              const capProfile = results[2] as any;
-              enrichedAgent.capabilities = {
-                tools_count: capProfile.discovered_tools.length,
-                standard_operations: capProfile.standard_operations,
-                creative_capabilities: capProfile.creative_capabilities,
-                signals_capabilities: capProfile.signals_capabilities,
-              };
-            }
-          } else if (withCapabilities) {
-            const capProfile = results[0] as any;
+          if (withCapabilities) {
+            const capProfile = results[resultIndex++] as any;
             enrichedAgent.capabilities = {
               tools_count: capProfile.discovered_tools.length,
               standard_operations: capProfile.standard_operations,
               creative_capabilities: capProfile.creative_capabilities,
               signals_capabilities: capProfile.signals_capabilities,
             };
+          }
+
+          if (withProperties && agent.type === "sales") {
+            const propsProfile = results[resultIndex++] as any;
+            enrichedAgent.properties = propsProfile.properties;
+            enrichedAgent.propertiesError = propsProfile.error;
           }
 
           return enrichedAgent;
@@ -105,8 +119,9 @@ export class HTTPServer {
       res.json(enriched);
     });
 
-    this.app.get("/api/agents/:name", async (req, res) => {
-      const agent = this.registry.getAgent(req.params.name);
+    this.app.get("/api/agents/:type/:name", async (req, res) => {
+      const agentId = `${req.params.type}/${req.params.name}`;
+      const agent = this.registry.getAgent(agentId);
       if (!agent) {
         return res.status(404).json({ error: "Agent not found" });
       }
@@ -353,7 +368,19 @@ export class HTTPServer {
 
     // MCP endpoint - for AI agents to discover other agents
     // This makes the registry itself an MCP server that can be queried by other agents
+    this.app.options("/mcp", (req, res) => {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      res.status(204).end();
+    });
+
     this.app.post("/mcp", async (req, res) => {
+      // Add CORS headers for browser-based MCP clients
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
       const { method, params, id } = req.body;
 
       try {
@@ -410,6 +437,20 @@ export class HTTPServer {
                     required: ["property_type", "property_value"],
                   },
                 },
+                {
+                  name: "get_properties_for_agent",
+                  description: "Get all properties that a specific agent is authorized to sell by checking their publisher's adagents.json",
+                  inputSchema: {
+                    type: "object",
+                    properties: {
+                      agent_url: {
+                        type: "string",
+                        description: "Agent URL (e.g., 'https://sales.weather.com')",
+                      },
+                    },
+                    required: ["agent_url"],
+                  },
+                },
               ],
             },
           });
@@ -429,8 +470,20 @@ export class HTTPServer {
               result: {
                 content: [
                   {
-                    type: "text",
-                    text: JSON.stringify({ agents, count: agents.length }, null, 2),
+                    type: "resource",
+                    resource: {
+                      uri: `https://registry.adcontextprotocol.org/agents/${type || "all"}`,
+                      mimeType: "application/json",
+                      text: JSON.stringify({
+                        agents,
+                        count: agents.length,
+                        by_type: {
+                          creative: agents.filter(a => a.type === "creative").length,
+                          signals: agents.filter(a => a.type === "signals").length,
+                          sales: agents.filter(a => a.type === "sales").length,
+                        }
+                      }, null, 2),
+                    },
                   },
                 ],
               },
@@ -458,8 +511,12 @@ export class HTTPServer {
               result: {
                 content: [
                   {
-                    type: "text",
-                    text: JSON.stringify(agent, null, 2),
+                    type: "resource",
+                    resource: {
+                      uri: `https://registry.adcontextprotocol.org/agents/${agentId}`,
+                      mimeType: "application/json",
+                      text: JSON.stringify(agent, null, 2),
+                    },
                   },
                 ],
               },
@@ -478,17 +535,101 @@ export class HTTPServer {
               result: {
                 content: [
                   {
-                    type: "text",
-                    text: JSON.stringify(
-                      { property_type: propertyType, property_value: propertyValue, agents, count: agents.length },
-                      null,
-                      2
-                    ),
+                    type: "resource",
+                    resource: {
+                      uri: `https://registry.adcontextprotocol.org/properties/${propertyType}/${propertyValue}`,
+                      mimeType: "application/json",
+                      text: JSON.stringify(
+                        { property_type: propertyType, property_value: propertyValue, agents, count: agents.length },
+                        null,
+                        2
+                      ),
+                    },
                   },
                 ],
               },
             });
             return;
+          }
+
+          if (name === "get_properties_for_agent") {
+            const agentUrl = args?.agent_url as string;
+            if (!agentUrl) {
+              res.json({
+                jsonrpc: "2.0",
+                id,
+                error: {
+                  code: -32602,
+                  message: "Missing agent_url parameter",
+                },
+              });
+              return;
+            }
+
+            try {
+              // Find the agent in our registry
+              const agents = Array.from(this.registry.getAllAgents().values());
+              const agent = agents.find((a) => a.url === agentUrl);
+
+              if (!agent) {
+                res.json({
+                  jsonrpc: "2.0",
+                  id,
+                  error: {
+                    code: -32602,
+                    message: `Agent not found: ${agentUrl}`,
+                  },
+                });
+                return;
+              }
+
+              // Use cached properties service
+              const profile = await this.propertiesService.getPropertiesForAgent(agent);
+
+              const url = new URL(agentUrl);
+              const domain = url.hostname;
+
+              res.json({
+                jsonrpc: "2.0",
+                id,
+                result: {
+                  content: [
+                    {
+                      type: "resource",
+                      resource: {
+                        uri: `https://registry.adcontextprotocol.org/agent-properties/${domain}`,
+                        mimeType: "application/json",
+                        text: JSON.stringify(
+                          {
+                            agent_url: agentUrl,
+                            domain,
+                            protocol: profile.protocol,
+                            properties: profile.properties,
+                            count: profile.properties.length,
+                            error: profile.error,
+                            status: profile.error ? "error" : profile.properties.length > 0 ? "success" : "empty",
+                            last_fetched: profile.last_fetched,
+                          },
+                          null,
+                          2
+                        ),
+                      },
+                    },
+                  ],
+                },
+              });
+              return;
+            } catch (error: any) {
+              res.json({
+                jsonrpc: "2.0",
+                id,
+                error: {
+                  code: -32603,
+                  message: `Failed to get properties: ${error.message}`,
+                },
+              });
+              return;
+            }
           }
 
           res.json({

@@ -5,7 +5,11 @@ import type { Agent, AgentType } from "./types.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const REGISTRY_ROOT = path.join(__dirname, "../registry");
+// In dev: __dirname is /server/src, registry is at ../../registry
+// In prod: __dirname is /dist, registry is at ../registry
+const REGISTRY_ROOT = process.env.NODE_ENV === 'production'
+  ? path.join(__dirname, "../registry")
+  : path.join(__dirname, "../../registry");
 
 export class Registry {
   private agents: Map<string, Agent> = new Map();
