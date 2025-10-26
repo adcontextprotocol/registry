@@ -2,7 +2,7 @@
   "name": "Weather Sales Agent",
   "url": "https://weather.sales-agent.scope3.com",
   "type": "sales",
-  "protocol": "a2a",
+  "protocol": "mcp",
   "description": "Weather.com sales agent powered by Scope3",
   "mcp_endpoint": "https://weather.sales-agent.scope3.com",
   "contact": {

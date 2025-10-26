@@ -46,11 +46,25 @@ export class PropertiesService {
         const client = createMCPClient(agent.url);
         const response = await client.callTool("list_authorized_properties", {});
 
-        // MCP response should have properties in the result
-        if (response?.properties) {
-          properties = response.properties;
-        } else if (Array.isArray(response)) {
+        // MCP response can have different formats:
+        // 1. Array of properties directly
+        if (Array.isArray(response)) {
           properties = response;
+        }
+        // 2. Object with properties array
+        else if (response?.properties && Array.isArray(response.properties)) {
+          properties = response.properties;
+        }
+        // 3. Object with publisher_domains (convert to properties format)
+        else if (response?.publisher_domains && Array.isArray(response.publisher_domains)) {
+          properties = response.publisher_domains.map((domain: string) => ({
+            identifier: domain,
+            domain: domain,
+            type: "domain",
+            tags: response.primary_channels ? [response.primary_channels] : undefined,
+            country: response.primary_countries,
+            description: response.portfolio_description,
+          }));
         }
       }
     } catch (toolError: any) {
