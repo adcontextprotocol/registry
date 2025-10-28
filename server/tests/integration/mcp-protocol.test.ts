@@ -52,7 +52,7 @@ describe('MCP Protocol Compliance', () => {
       expect(response.body.id).toBe('test-id-123');
     });
 
-    it('returns result.tools array with 4 tools', async () => {
+    it('returns result.tools array with 6 tools', async () => {
       const response = await request(app)
         .post('/mcp')
         .send({
@@ -62,7 +62,7 @@ describe('MCP Protocol Compliance', () => {
         });
 
       expect(response.body.result.tools).toBeInstanceOf(Array);
-      expect(response.body.result.tools).toHaveLength(4);
+      expect(response.body.result.tools).toHaveLength(6);
     });
 
     it('each tool has name, description, inputSchema', async () => {

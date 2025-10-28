@@ -1,4 +1,5 @@
 import type { Agent } from "./types.js";
+import { FormatsService } from "./formats.js";
 
 export interface ToolCapability {
   name: string;
@@ -44,6 +45,11 @@ export interface AgentCapabilityProfile {
 export class CapabilityDiscovery {
   private cache: Map<string, AgentCapabilityProfile> = new Map();
   private readonly CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
+  private formatsService: FormatsService;
+
+  constructor() {
+    this.formatsService = new FormatsService();
+  }
 
   async discoverCapabilities(agent: Agent): Promise<AgentCapabilityProfile> {
     const cached = this.cache.get(agent.url);
@@ -66,7 +72,7 @@ export class CapabilityDiscovery {
       if (agent.type === "sales") {
         profile.standard_operations = this.analyzeSalesCapabilities(tools);
       } else if (agent.type === "creative") {
-        profile.creative_capabilities = this.analyzeCreativeCapabilities(tools);
+        profile.creative_capabilities = await this.analyzeCreativeCapabilities(agent, tools);
       } else if (agent.type === "signals") {
         profile.signals_capabilities = this.analyzeSignalsCapabilities(tools);
       }
@@ -160,12 +166,23 @@ export class CapabilityDiscovery {
     };
   }
 
-  private analyzeCreativeCapabilities(tools: ToolCapability[]): CreativeCapabilities {
+  private async analyzeCreativeCapabilities(agent: Agent, tools: ToolCapability[]): Promise<CreativeCapabilities> {
     const toolNames = new Set(tools.map((t) => t.name.toLowerCase()));
-    const formatTool = tools.find((t) => t.name.toLowerCase() === "list_creative_formats");
+    const hasFormatTool = toolNames.has("list_creative_formats");
+
+    let formats: string[] = [];
+    if (hasFormatTool) {
+      try {
+        const formatsProfile = await this.formatsService.getFormatsForAgent(agent);
+        formats = formatsProfile.formats.map(f => f.name);
+      } catch (error) {
+        // If format discovery fails, continue with empty array
+        console.error(`Format discovery failed for ${agent.url}:`, error);
+      }
+    }
 
     return {
-      formats_supported: this.extractFormats(formatTool),
+      formats_supported: formats,
       can_generate: toolNames.has("build_creative") || toolNames.has("generate_creative"),
       can_validate: toolNames.has("validate_creative"),
       can_preview: toolNames.has("preview_creative") || toolNames.has("get_preview"),
@@ -176,17 +193,11 @@ export class CapabilityDiscovery {
     const toolNames = new Set(tools.map((t) => t.name.toLowerCase()));
 
     return {
-      audience_types: [], // Would need to inspect tool schemas to determine
+      audience_types: [],
       can_match: toolNames.has("match_audience") || toolNames.has("audience_match"),
       can_activate: toolNames.has("activate_signal") || toolNames.has("activate_audience"),
       can_get_signals: toolNames.has("get_signals") || toolNames.has("list_signals"),
     };
-  }
-
-  private extractFormats(formatTool?: ToolCapability): string[] {
-    // Would need to call the tool to get actual formats
-    // For now, return empty array
-    return [];
   }
 
   async discoverAll(agents: Agent[]): Promise<Map<string, AgentCapabilityProfile>> {

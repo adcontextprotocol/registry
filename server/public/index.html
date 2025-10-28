@@ -218,18 +218,23 @@
         let salesFilters = { status: 'all', channel: null, country: null, search: '' };
         let creativeFilters = { status: 'all', format: null, search: '' };
         let signalsFilters = { status: 'all', search: '' };
+        let isLoading = true;
 
         // Initialize
         window.addEventListener('DOMContentLoaded', async () => {
             handleRoute();
             window.addEventListener('hashchange', handleRoute);
+
+            // Show loading skeletons immediately
+            renderCurrentTab();
+
             await loadAllAgents();
         });
 
         async function loadAllAgents() {
             try {
-                // Load all agents with health and properties in one call
-                const response = await fetch('/api/agents?health=true&properties=true');
+                // Load all agents with health, properties, and capabilities in one call
+                const response = await fetch('/api/agents?health=true&properties=true&capabilities=true');
                 const agents = await response.json();
 
                 salesAgents = agents.filter(a => a.type === 'sales');
@@ -254,19 +259,23 @@
                 // Enrich creative agents with formats
                 await enrichCreativeAgents();
 
+                // Done loading
+                isLoading = false;
+
                 // Render current tab
                 renderCurrentTab();
             } catch (error) {
                 console.error('Failed to load agents:', error);
+                isLoading = false;
+                renderCurrentTab();
             }
         }
 
         async function enrichCreativeAgents() {
-            // For now, just use the agents as-is
-            // TODO: Call list_creative_formats tool to get actual formats
+            // Extract formats from capabilities if available
             creativeAgentsEnriched = creativeAgents.map(agent => ({
                 ...agent,
-                formats: [] // Will be populated when agents implement the tool
+                formats: agent.capabilities?.creative_capabilities?.formats_supported || []
             }));
         }
 
@@ -336,7 +345,40 @@
             else if (currentTab === 'signals') renderSignalsAgents();
         }
 
+        function renderLoadingSkeleton(count = 3) {
+            return Array(count).fill(0).map(() => `
+                <div class="agent-card" style="pointer-events: none; opacity: 0.6;">
+                    <div class="agent-header">
+                        <div class="agent-title" style="flex: 1;">
+                            <div style="height: 20px; background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: 4px; width: 60%; margin-bottom: 0.5rem;"></div>
+                            <div style="height: 14px; background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: 4px; width: 80%;"></div>
+                        </div>
+                        <span class="status-badge" style="background: #f0f0f0; color: transparent;">...</span>
+                    </div>
+                    <div style="height: 40px; background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: 4px; margin-bottom: 1rem;"></div>
+                    <div class="agent-meta">
+                        <div style="height: 16px; background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: 4px; width: 100px;"></div>
+                    </div>
+                </div>
+            `).join('') + `
+            <style>
+                @keyframes shimmer {
+                    0% { background-position: -200% 0; }
+                    100% { background-position: 200% 0; }
+                }
+            </style>
+            `;
+        }
+
         function renderSalesAgents() {
+            const container = document.getElementById('sales-agents');
+
+            // Show loading skeleton while data is being fetched
+            if (isLoading) {
+                container.innerHTML = renderLoadingSkeleton(4);
+                return;
+            }
+
             const filtered = salesAgentsEnriched.filter(agent => {
                 // Status filter
                 if (salesFilters.status !== 'all') {
@@ -375,7 +417,6 @@
                 return true;
             });
 
-            const container = document.getElementById('sales-agents');
             if (filtered.length === 0) {
                 container.innerHTML = '<div class="loading">No sales agents found matching your filters.</div>';
                 return;
@@ -432,6 +473,14 @@
         }
 
         function renderCreativeAgents() {
+            const container = document.getElementById('creative-agents');
+
+            // Show loading skeleton while data is being fetched
+            if (isLoading) {
+                container.innerHTML = renderLoadingSkeleton(3);
+                return;
+            }
+
             const filtered = creativeAgentsEnriched.filter(agent => {
                 // Status filter
                 if (creativeFilters.status !== 'all') {
@@ -451,7 +500,6 @@
                 return true;
             });
 
-            const container = document.getElementById('creative-agents');
             if (filtered.length === 0) {
                 container.innerHTML = '<div class="loading">No creative agents found matching your filters.</div>';
                 return;
@@ -499,6 +547,14 @@
         }
 
         function renderSignalsAgents() {
+            const container = document.getElementById('signals-agents');
+
+            // Show loading skeleton while data is being fetched
+            if (isLoading) {
+                container.innerHTML = renderLoadingSkeleton(2);
+                return;
+            }
+
             const filtered = signalsAgents.filter(agent => {
                 // Status filter
                 if (signalsFilters.status !== 'all') {
@@ -516,7 +572,6 @@
                 return true;
             });
 
-            const container = document.getElementById('signals-agents');
             if (filtered.length === 0) {
                 container.innerHTML = '<div class="loading">No signals agents registered yet.</div>';
                 return;
@@ -700,14 +755,26 @@
                         `;
                     } else if (agent.type === 'creative' && caps.creative_capabilities) {
                         const cc = caps.creative_capabilities;
-                        const hasAllOps = cc.can_generate && cc.can_validate;
+                        // Only list_creative_formats is required per AdCP spec
+                        const isCompliant = cc.formats_supported.length > 0;
+                        const hasOptionalBuild = cc.can_generate;
+                        const hasOptionalPreview = cc.can_preview;
+
+                        const capabilities = [];
+                        if (hasOptionalBuild) capabilities.push('Generate');
+                        if (hasOptionalPreview) capabilities.push('Preview');
 
                         html += `
-                            <div style="background: ${hasAllOps ? '#f0fdf4' : '#fff7ed'}; border-left: 4px solid ${hasAllOps ? '#10b981' : '#f59e0b'}; padding: 1rem; border-radius: 6px; margin-bottom: 2rem;">
+                            <div style="background: ${isCompliant ? '#f0fdf4' : '#fff7ed'}; border-left: 4px solid ${isCompliant ? '#10b981' : '#f59e0b'}; padding: 1rem; border-radius: 6px; margin-bottom: 2rem;">
                                 <div style="display: flex; align-items: center; gap: 0.75rem;">
-                                    <span style="font-size: 1.5rem;">${hasAllOps ? '✅' : '⚠️'}</span>
+                                    <span style="font-size: 1.5rem;">${isCompliant ? '✅' : '⚠️'}</span>
                                     <div>
-                                        <strong style="font-size: 1.1rem;">${hasAllOps ? 'AdCP Creative Agent' : 'Incomplete Implementation'}</strong>
+                                        <strong style="font-size: 1.1rem;">${isCompliant ? 'AdCP Creative Agent' : 'Incomplete Implementation'}</strong>
+                                        <div style="font-size: 0.9rem; color: #666; margin-top: 0.25rem;">
+                                            ${isCompliant ?
+                                                `${cc.formats_supported.length} format(s)${capabilities.length > 0 ? ' • ' + capabilities.join(' • ') : ' • Formats only'}` :
+                                                'Missing required list_creative_formats tool'}
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -993,7 +1060,76 @@
 
         async function fetchFormats(agent) {
             const section = document.getElementById('formats-section');
-            section.innerHTML = '<div style="color: #666; font-size: 0.9rem;">Creative formats discovery coming soon...</div>';
+            section.innerHTML = '<div class="loading">Loading formats...</div>';
+
+            try {
+                const response = await fetch(`/mcp`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        jsonrpc: '2.0',
+                        id: 1,
+                        method: 'tools/call',
+                        params: {
+                            name: 'list_creative_formats_for_agent',
+                            arguments: { agent_url: agent.url, params: {} }
+                        }
+                    })
+                });
+                const data = await response.json();
+
+                if (data.error) {
+                    section.innerHTML = `<div style="color: #666; font-size: 0.9rem;">Unable to fetch formats: ${data.error.message || 'Unknown error'}</div>`;
+                    return;
+                }
+
+                const result = JSON.parse(data.result.content[0].resource.text);
+
+                if (result.error) {
+                    section.innerHTML = `<div style="color: #666; font-size: 0.9rem;">${result.error}</div>`;
+                    return;
+                }
+
+                // Handle different response formats
+                let formats = [];
+                if (Array.isArray(result)) {
+                    formats = result;
+                } else if (result.formats && Array.isArray(result.formats)) {
+                    formats = result.formats;
+                } else if (result.data && Array.isArray(result.data)) {
+                    formats = result.data;
+                } else if (result.data && result.data.formats) {
+                    formats = result.data.formats;
+                }
+
+                if (formats.length === 0) {
+                    section.innerHTML = '<div style="color: #666; font-size: 0.9rem;">No creative formats available</div>';
+                    return;
+                }
+
+                // Display formats in a grid
+                let html = '<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem;">';
+                formats.forEach(format => {
+                    const formatName = typeof format === 'string' ? format : (format.name || format.format || 'Unknown');
+                    const dimensions = typeof format === 'object' ? (format.dimensions || format.size) : null;
+                    const type = typeof format === 'object' ? (format.type || format.format_type) : null;
+                    const description = typeof format === 'object' ? format.description : null;
+
+                    html += `
+                        <div style="background: #f9fafb; padding: 1rem; border-radius: 6px; border-left: 3px solid #667eea;">
+                            <div style="font-weight: 600; margin-bottom: 0.5rem;">${formatName}</div>
+                            ${dimensions ? `<div style="font-size: 0.85rem; color: #666;">📐 ${dimensions}</div>` : ''}
+                            ${type ? `<div style="font-size: 0.75rem; color: #667eea; margin-top: 0.25rem; text-transform: capitalize;">${type}</div>` : ''}
+                            ${description ? `<div style="font-size: 0.85rem; color: #666; margin-top: 0.5rem;">${description}</div>` : ''}
+                        </div>
+                    `;
+                });
+                html += '</div>';
+
+                section.innerHTML = html;
+            } catch (error) {
+                section.innerHTML = `<div class="error-text">Failed to load formats: ${error.message}</div>`;
+            }
         }
 
         async function fetchPublicProducts(agent) {

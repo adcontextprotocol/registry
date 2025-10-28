@@ -1,5 +1,13 @@
 export type AgentType = "creative" | "signals" | "sales";
 
+export interface FormatInfo {
+  name: string;
+  dimensions?: string;
+  aspect_ratio?: string;
+  type?: string;
+  description?: string;
+}
+
 export interface Agent {
   $schema?: string;
   name: string;

@@ -800,6 +800,17 @@ export class HTTPServer {
   async start(port: number = 3000): Promise<void> {
     await this.registry.load();
 
+    // Pre-warm caches for all agents in background
+    const allAgents = this.registry.listAgents();
+    console.log(`Pre-warming caches for ${allAgents.length} agents...`);
+
+    // Don't await - let this run in background
+    this.prewarmCaches(allAgents).then(() => {
+      console.log(`Cache pre-warming complete`);
+    }).catch(err => {
+      console.error(`Cache pre-warming failed:`, err.message);
+    });
+
     // Start periodic property crawler for sales agents
     const salesAgents = this.registry.listAgents("sales");
     if (salesAgents.length > 0) {
@@ -812,5 +823,27 @@ export class HTTPServer {
       console.log(`Web UI: http://localhost:${port}`);
       console.log(`API: http://localhost:${port}/api/agents`);
     });
+  }
+
+  private async prewarmCaches(agents: any[]): Promise<void> {
+    await Promise.all(
+      agents.map(async (agent) => {
+        try {
+          // Warm health and stats caches
+          await Promise.all([
+            this.healthChecker.checkHealth(agent),
+            this.healthChecker.getStats(agent),
+            this.capabilityDiscovery.discoverCapabilities(agent),
+          ]);
+
+          // Warm type-specific caches
+          if (agent.type === "sales") {
+            await this.propertiesService.getPropertiesForAgent(agent);
+          }
+        } catch (error) {
+          // Errors are expected for offline agents, just continue
+        }
+      })
+    );
   }
 }
