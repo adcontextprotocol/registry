@@ -1,14 +1,17 @@
 import type { Agent, AgentHealth, AgentStats } from "./types.js";
 import { Cache } from "./cache.js";
 import { createMCPClient, createA2AClient, getPropertyIndex } from "@adcp/client";
+import { FormatsService } from "./formats.js";
 
 export class HealthChecker {
   private healthCache: Cache<AgentHealth>;
   private statsCache: Cache<AgentStats>;
+  private formatsService: FormatsService;
 
   constructor(cacheTtlMinutes: number = 15) {
     this.healthCache = new Cache<AgentHealth>(cacheTtlMinutes);
     this.statsCache = new Cache<AgentStats>(cacheTtlMinutes);
+    this.formatsService = new FormatsService();
   }
 
   async checkHealth(agent: Agent): Promise<AgentHealth> {
@@ -33,67 +36,33 @@ export class HealthChecker {
   }
 
   private async tryMCP(agent: Agent, startTime: number): Promise<AgentHealth> {
-    // Try both the provided endpoint and /mcp fallback
-    const endpoints = [
-      agent.mcp_endpoint,
-      agent.url.endsWith("/mcp") ? null : `${agent.url.replace(/\/$/, "")}/mcp`,
-    ].filter(Boolean) as string[];
+    try {
+      // Use ADCPClient to handle MCP protocol complexity (sessions, SSE, etc.)
+      const { ADCPClient } = await import("@adcp/client");
+      const client = new ADCPClient({
+        id: "health-check",
+        name: "Health Checker",
+        agent_uri: agent.url,
+        protocol: "mcp",
+      });
 
-    for (const endpoint of endpoints) {
-      try {
-        const client = createMCPClient(endpoint);
+      const agentInfo = await client.getAgentInfo();
+      const responseTime = Date.now() - startTime;
 
-        // Try to list tools - this is a standard MCP operation
-        await client.callTool("list_tools", {});
-
-        const responseTime = Date.now() - startTime;
-
-        // If we got here, MCP is working
-        // Now try to get actual tool count
-        try {
-          const toolsResponse = await fetch(endpoint, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              jsonrpc: "2.0",
-              method: "tools/list",
-              id: 1,
-            }),
-            signal: AbortSignal.timeout(5000),
-          });
-
-          if (toolsResponse.ok) {
-            const data = (await toolsResponse.json()) as any;
-            const toolsCount = data.result?.tools?.length || 0;
-
-            return {
-              online: true,
-              checked_at: new Date().toISOString(),
-              response_time_ms: responseTime,
-              tools_count: toolsCount,
-              resources_count: 0,
-            };
-          }
-        } catch {
-          // Tool listing failed but connection worked
-        }
-
-        return {
-          online: true,
-          checked_at: new Date().toISOString(),
-          response_time_ms: responseTime,
-        };
-      } catch (error) {
-        // Try next endpoint
-        continue;
-      }
+      return {
+        online: true,
+        checked_at: new Date().toISOString(),
+        response_time_ms: responseTime,
+        tools_count: agentInfo.tools.length,
+        resources_count: (agentInfo as any).resources?.length || 0,
+      };
+    } catch (error: any) {
+      return {
+        online: false,
+        checked_at: new Date().toISOString(),
+        error: `MCP connection failed: ${error.message}`,
+      };
     }
-
-    return {
-      online: false,
-      checked_at: new Date().toISOString(),
-      error: "MCP connection failed",
-    };
   }
 
   private async tryA2A(agent: Agent, startTime: number): Promise<AgentHealth> {
@@ -157,13 +126,11 @@ export class HealthChecker {
           stats.publisher_count = auth.publisher_domains.length;
         }
       } else if (agent.type === "creative") {
-        // For creative agents, get format count from list_creative_formats tool
+        // For creative agents, get format count from FormatsService
         try {
-          const client = createMCPClient(agent.mcp_endpoint);
-          const result = await client.callTool("list_creative_formats", {});
-
-          if (result?.formats && Array.isArray(result.formats)) {
-            stats.creative_formats = result.formats.length;
+          const formatsProfile = await this.formatsService.getFormatsForAgent(agent);
+          if (formatsProfile.formats && formatsProfile.formats.length > 0) {
+            stats.creative_formats = formatsProfile.formats.length;
           }
         } catch {
           // Creative format listing failed
