@@ -81,6 +81,16 @@
         .footer-links { text-align: center; margin-top: 2rem; padding-top: 2rem; border-top: 1px solid #eee; color: #666; }
         .footer-links a { color: #667eea; text-decoration: none; margin: 0 1rem; }
 
+        /* Quick Links Section */
+        .quick-links { max-width: 1400px; margin: -1rem auto 2rem; padding: 0 1rem; }
+        .quick-links-container { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
+        .quick-link { flex: 1; min-width: 250px; max-width: 400px; background: white; padding: 1.5rem; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); text-decoration: none; color: inherit; transition: all 0.2s; border: 2px solid transparent; cursor: pointer; }
+        .quick-link:hover { transform: translateY(-4px); box-shadow: 0 6px 16px rgba(0,0,0,0.15); border-color: #667eea; }
+        .quick-link-icon { font-size: 2.5rem; margin-bottom: 0.5rem; }
+        .quick-link-title { font-size: 1.2rem; font-weight: 600; color: #333; margin-bottom: 0.25rem; }
+        .quick-link-desc { font-size: 0.9rem; color: #666; }
+        @media (max-width: 768px) { .quick-links-container { flex-direction: column; } .quick-link { max-width: none; } }
+
         /* Collapsible details */
         details[open] summary span { transform: rotate(90deg); }
         details summary { user-select: none; }
@@ -94,6 +104,27 @@
         <h1>AdCP Agent Registry</h1>
         <p class="subtitle">Discover agents for advertising automation</p>
     </header>
+
+    <!-- Quick Links -->
+    <div class="quick-links">
+        <div class="quick-links-container">
+            <a href="?type=sales" class="quick-link">
+                <div class="quick-link-icon">🏢</div>
+                <div class="quick-link-title">Sales Agents</div>
+                <div class="quick-link-desc">Browse agents for media sales automation</div>
+            </a>
+            <a href="?type=creative" class="quick-link">
+                <div class="quick-link-icon">🎨</div>
+                <div class="quick-link-title">Creative Agents</div>
+                <div class="quick-link-desc">Discover creative generation agents</div>
+            </a>
+            <a href="?type=signals" class="quick-link">
+                <div class="quick-link-icon">📊</div>
+                <div class="quick-link-title">Signals Agents</div>
+                <div class="quick-link-desc">Find audience and signals agents</div>
+            </a>
+        </div>
+    </div>
 
     <!-- List View -->
     <div id="list-view" class="view active">
@@ -224,7 +255,29 @@
             handleRoute();
             window.addEventListener('hashchange', handleRoute);
             await loadAllAgents();
+            handleQueryParams();
         });
+
+        function handleQueryParams() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const type = urlParams.get('type');
+
+            if (type && ['sales', 'creative', 'signals'].includes(type)) {
+                // Update tab buttons
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                const activeTab = Array.from(document.querySelectorAll('.tab')).find(t =>
+                    t.textContent.toLowerCase().includes(type)
+                );
+                if (activeTab) activeTab.classList.add('active');
+
+                // Update tab content
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                document.getElementById(`${type}-tab`).classList.add('active');
+
+                currentTab = type;
+                renderCurrentTab();
+            }
+        }
 
         async function loadAllAgents() {
             try {
