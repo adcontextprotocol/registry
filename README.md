@@ -115,4 +115,4 @@ To add an agent to the registry:
 
 ## License
 
-MIT
+Apache 2.0 License - see [LICENSE](LICENSE) file for details.
