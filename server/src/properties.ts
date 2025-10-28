@@ -1,4 +1,4 @@
-import { createMCPClient, createA2AClient } from "@adcp/client";
+import { AgentClient } from "@adcp/client";
 import type { Agent } from "./types.js";
 
 export interface PropertyInfo {
@@ -28,25 +28,24 @@ export class PropertiesService {
       return cached;
     }
 
-    const protocol = agent.protocol || "mcp";
     let properties: PropertyInfo[] = [];
     let error: string | undefined;
 
     try {
-      if (protocol === "a2a") {
-        const client = createA2AClient(agent.url);
-        const response = await client.callTool("list_authorized_properties", {});
+      // Create agent client with the new API
+      const agentConfig = {
+        id: agent.name,
+        name: agent.name,
+        agent_uri: agent.url,
+        protocol: (agent.protocol || "mcp") as "mcp" | "a2a",
+      };
+      const client = new AgentClient(agentConfig);
+      const result = await client.executeTask("list_authorized_properties", {});
 
-        // Extract properties from A2A response
-        const artifact = response?.result?.artifacts?.[0];
-        if (artifact?.parts?.[0]?.data?.properties) {
-          properties = artifact.parts[0].data.properties;
-        }
-      } else {
-        const client = createMCPClient(agent.url);
-        const response = await client.callTool("list_authorized_properties", {});
+      if ((result.status === "completed" || result.success) && result.data) {
+        const response = result.data;
 
-        // MCP response can have different formats:
+        // Handle different response formats:
         // 1. Array of properties directly
         if (Array.isArray(response)) {
           properties = response;
@@ -66,6 +65,8 @@ export class PropertiesService {
             description: response.portfolio_description,
           }));
         }
+      } else if (result.status === "error" || !result.success) {
+        error = `Agent returned error: ${result.error || "Unknown error"}`;
       }
     } catch (toolError: any) {
       error = `Agent does not support list_authorized_properties: ${toolError.message}`;
@@ -73,7 +74,7 @@ export class PropertiesService {
 
     const profile: AgentPropertiesProfile = {
       agent_url: agent.url,
-      protocol,
+      protocol: agent.protocol || "mcp",
       properties,
       last_fetched: new Date().toISOString(),
       error,
