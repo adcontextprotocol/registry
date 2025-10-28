@@ -10,7 +10,7 @@
         header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 2rem 0; text-align: center; }
         h1 { font-size: 2.5rem; margin-bottom: 0.5rem; }
         .subtitle { font-size: 1.1rem; opacity: 0.9; }
-        .container { max-width: 1400px; margin: 2rem auto; padding: 0 1rem; min-height: 60vh; }
+        .container { max-width: 1400px; margin: 2rem auto; padding: 0 1rem; }
 
         /* Tabs */
         .tabs { display: flex; gap: 0.5rem; border-bottom: 2px solid #ddd; margin-bottom: 2rem; }
@@ -80,6 +80,12 @@
         .mcp-url { background: #ede9fe; padding: 0.75rem; border-radius: 6px; margin: 0.75rem 0; font-family: Monaco, monospace; font-size: 0.95rem; word-break: break-all; color: #5b21b6; }
         .footer-links { text-align: center; margin-top: 2rem; padding-top: 2rem; border-top: 1px solid #eee; color: #666; }
         .footer-links a { color: #667eea; text-decoration: none; margin: 0 1rem; }
+
+        /* Collapsible details */
+        details[open] summary span { transform: rotate(90deg); }
+        details summary { user-select: none; }
+        details summary::-webkit-details-marker { display: none; }
+
         @media (max-width: 768px) { .footer-content { grid-template-columns: 1fr; } }
     </style>
 </head>
@@ -631,31 +637,108 @@
             try {
                 const [type, ...nameParts] = agentId.split('/');
                 const name = nameParts.join('/');
-                const response = await fetch(`/api/agents/${type}/${name}`);
-                const agent = await response.json();
+
+                // Fetch agent with health check
+                const [agentResp, capsResp] = await Promise.all([
+                    fetch(`/api/agents/${type}/${name}?health=true`),
+                    fetch(`/api/agents?health=true&capabilities=true&properties=true`)
+                ]);
+
+                const agent = await agentResp.json();
+                const allAgents = await capsResp.json();
+                const agentWithCaps = allAgents.find(a => a.url === agent.url) || agent;
 
                 document.getElementById('detail-name').textContent = agent.name;
                 document.getElementById('detail-url').textContent = agent.url;
 
                 let html = '';
 
-                // Tools section
+                // Health status banner
                 const health = agent.health || {};
-                if (health.tools_count > 0) {
-                    html += `
-                        <div class="detail-section">
-                            <h3>🛠️ Tools (${health.tools_count})</h3>
-                            <div id="tools-section"><div class="loading">Loading tools...</div></div>
+                const statusColor = health.online ? '#10b981' : '#ef4444';
+                const statusText = health.online ? 'Active' : 'Offline';
+                html += `
+                    <div style="background: ${statusColor}; color: white; padding: 1rem; border-radius: 6px; margin-bottom: 2rem; display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <strong style="font-size: 1.1rem;">Status: ${statusText}</strong>
+                            ${health.response_time_ms ? `<span style="margin-left: 1rem; opacity: 0.9;">Response time: ${health.response_time_ms}ms</span>` : ''}
                         </div>
-                    `;
+                        ${health.last_check ? `<div style="opacity: 0.9; font-size: 0.9rem;">Last check: ${new Date(health.last_check).toLocaleString()}</div>` : ''}
+                    </div>
+                `;
+
+                // Spec Compliance Badge
+                if (agentWithCaps.capabilities) {
+                    const caps = agentWithCaps.capabilities;
+
+                    if (agent.type === 'sales' && caps.tools) {
+                        // Check for actual AdCP spec required tools (from @adcp/client types)
+                        const toolNames = new Set(caps.tools.map(t => t.name.toLowerCase()));
+                        const requiredTools = [
+                            'get_products',
+                            'create_media_buy',
+                            'update_media_buy',
+                            'get_media_buy_delivery',
+                            'sync_creatives',
+                            'list_authorized_properties'
+                        ];
+                        const implementedTools = requiredTools.filter(tool => toolNames.has(tool));
+                        const isCompliant = implementedTools.length === requiredTools.length;
+
+                        html += `
+                            <div style="background: ${isCompliant ? '#f0fdf4' : '#fff7ed'}; border-left: 4px solid ${isCompliant ? '#10b981' : '#f59e0b'}; padding: 1rem; border-radius: 6px; margin-bottom: 2rem;">
+                                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                    <span style="font-size: 1.5rem;">${isCompliant ? '✅' : '⚠️'}</span>
+                                    <div>
+                                        <strong style="font-size: 1.1rem;">${isCompliant ? 'AdCP Sales Agent' : 'Incomplete Implementation'}</strong>
+                                        <div style="font-size: 0.9rem; color: #666; margin-top: 0.25rem;">
+                                            Implements ${implementedTools.length} of ${requiredTools.length} required tools: ${requiredTools.join(', ')}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    } else if (agent.type === 'creative' && caps.creative_capabilities) {
+                        const cc = caps.creative_capabilities;
+                        const hasAllOps = cc.can_generate && cc.can_validate;
+
+                        html += `
+                            <div style="background: ${hasAllOps ? '#f0fdf4' : '#fff7ed'}; border-left: 4px solid ${hasAllOps ? '#10b981' : '#f59e0b'}; padding: 1rem; border-radius: 6px; margin-bottom: 2rem;">
+                                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                    <span style="font-size: 1.5rem;">${hasAllOps ? '✅' : '⚠️'}</span>
+                                    <div>
+                                        <strong style="font-size: 1.1rem;">${hasAllOps ? 'AdCP Creative Agent' : 'Incomplete Implementation'}</strong>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }
                 }
 
-                // Type-specific sections
+                // Type-specific sections (MOVED TO TOP)
                 if (agent.type === 'sales') {
                     html += `
                         <div class="detail-section">
-                            <h3>📰 Publishers</h3>
+                            <h3>📰 Publishers & Properties</h3>
                             <div id="publishers-section"><div class="loading">Loading publishers...</div></div>
+                        </div>
+                        <div class="detail-section">
+                            <details style="cursor: pointer;">
+                                <summary style="font-size: 1.3rem; font-weight: 600; color: #667eea; list-style: none; display: flex; align-items: center; gap: 0.5rem;">
+                                    <span style="transition: transform 0.2s;">▶</span>
+                                    📦 Public Products
+                                </summary>
+                                <div id="products-section" style="margin-top: 1rem;"><div class="loading">Click to load available products...</div></div>
+                            </details>
+                        </div>
+                        <div class="detail-section">
+                            <details style="cursor: pointer;">
+                                <summary style="font-size: 1.3rem; font-weight: 600; color: #667eea; list-style: none; display: flex; align-items: center; gap: 0.5rem;">
+                                    <span style="transition: transform 0.2s;">▶</span>
+                                    🎨 Creative Formats
+                                </summary>
+                                <div id="creative-formats-section" style="margin-top: 1rem;"><div class="loading">Click to load supported formats...</div></div>
+                            </details>
                         </div>
                     `;
                 } else if (agent.type === 'creative') {
@@ -667,21 +750,39 @@
                     `;
                 }
 
+                // Tools section (moved to bottom, collapsible)
+                html += `
+                    <div class="detail-section">
+                        <details style="cursor: pointer;">
+                            <summary style="font-size: 1.3rem; font-weight: 600; color: #667eea; list-style: none; display: flex; align-items: center; gap: 0.5rem;">
+                                <span style="transition: transform 0.2s;">▶</span>
+                                🛠️ Tools (${agentWithCaps.capabilities?.tools_count || 0})
+                            </summary>
+                            <div id="tools-section" style="margin-top: 1rem;"><div class="loading">Loading tools...</div></div>
+                        </details>
+                    </div>
+                `;
+
                 // Agent info
                 html += `
                     <div class="detail-section">
                         <h3>ℹ️ Agent Information</h3>
                         <div class="info-box">
-                            ${agent.description ? `<p style="margin-bottom: 1rem;">${agent.description}</p>` : ''}
-                            <div style="margin-bottom: 0.5rem;"><strong>Type:</strong> ${agent.type}</div>
-                            <div style="margin-bottom: 0.5rem;"><strong>Protocol:</strong> ${agent.protocol || 'mcp'}</div>
-                            ${agent.mcp_endpoint ? `<div style="margin-bottom: 0.5rem;"><strong>Endpoint:</strong> <code style="background: #ede9fe; padding: 0.25rem 0.5rem; border-radius: 4px;">${agent.mcp_endpoint}</code></div>` : ''}
-                            ${health.response_time_ms ? `<div style="margin-bottom: 0.5rem;"><strong>Response Time:</strong> ${health.response_time_ms}ms</div>` : ''}
+                            ${agent.description ? `<p style="margin-bottom: 1rem; font-size: 1.05rem;">${agent.description}</p>` : ''}
+                            <div style="display: grid; gap: 0.75rem;">
+                                <div><strong>Type:</strong> <span style="text-transform: capitalize;">${agent.type}</span></div>
+                                <div><strong>Protocol:</strong> ${agent.protocol || 'mcp'}</div>
+                                <div><strong>Endpoint:</strong> <code style="background: #ede9fe; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.9rem; word-break: break-all;">${agent.url}</code></div>
+                                ${agent.mcp_endpoint ? `<div><strong>MCP Endpoint:</strong> <code style="background: #ede9fe; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.9rem; word-break: break-all;">${agent.mcp_endpoint}</code></div>` : ''}
+                            </div>
                             ${agent.contact ? `
-                                <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #ddd;">
-                                    <strong>Contact:</strong> ${agent.contact.name}<br>
-                                    <a href="mailto:${agent.contact.email}" style="color: #667eea;">${agent.contact.email}</a>
-                                    ${agent.contact.website ? ` | <a href="${agent.contact.website}" target="_blank" style="color: #667eea;">${agent.contact.website}</a>` : ''}
+                                <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid #ddd;">
+                                    <strong>Contact Information</strong><br>
+                                    <div style="margin-top: 0.5rem;">
+                                        ${agent.contact.name}<br>
+                                        <a href="mailto:${agent.contact.email}" style="color: #667eea;">${agent.contact.email}</a>
+                                        ${agent.contact.website ? `<br><a href="${agent.contact.website}" target="_blank" style="color: #667eea;">${agent.contact.website}</a>` : ''}
+                                    </div>
                                 </div>
                             ` : ''}
                         </div>
@@ -690,14 +791,87 @@
 
                 document.getElementById('detail-body').innerHTML = html;
 
-                // Fetch additional data
+                // Fetch tools and additional data
+                fetchTools(agent);
                 if (agent.type === 'sales') {
                     fetchPublishers(agent);
+
+                    // Add event listeners for lazy-loaded sections
+                    const productsDetails = document.querySelector('#products-section').closest('details');
+                    const creativeFormatsDetails = document.querySelector('#creative-formats-section').closest('details');
+
+                    productsDetails.addEventListener('toggle', function() {
+                        if (this.open && document.getElementById('products-section').innerHTML.includes('Click to load')) {
+                            fetchPublicProducts(agent);
+                        }
+                    });
+
+                    creativeFormatsDetails.addEventListener('toggle', function() {
+                        if (this.open && document.getElementById('creative-formats-section').innerHTML.includes('Click to load')) {
+                            fetchCreativeFormats(agent);
+                        }
+                    });
                 } else if (agent.type === 'creative') {
                     fetchFormats(agent);
                 }
             } catch (error) {
                 document.getElementById('detail-body').innerHTML = `<div class="error-text">Failed to load agent details: ${error.message}</div>`;
+            }
+        }
+
+        async function fetchTools(agent) {
+            const section = document.getElementById('tools-section');
+            try {
+                // Fetch capability discovery which includes all tools
+                const response = await fetch(`/api/agents?health=true&capabilities=true`);
+                const allAgents = await response.json();
+                const agentWithCaps = allAgents.find(a => a.url === agent.url);
+
+                if (!agentWithCaps || !agentWithCaps.capabilities || agentWithCaps.capabilities.tools_count === 0) {
+                    section.innerHTML = `<div style="color: #666; font-size: 0.9rem;">No tools discovered yet.</div>`;
+                    return;
+                }
+
+                const tools = agentWithCaps.capabilities.tools || [];
+
+                if (tools.length === 0) {
+                    section.innerHTML = `
+                        <div style="background: #f0f9ff; padding: 1rem; border-radius: 6px; border-left: 3px solid #0284c7;">
+                            <strong>Total Tools: ${agentWithCaps.capabilities.tools_count}</strong>
+                            <p style="margin-top: 0.5rem; font-size: 0.9rem; color: #666;">This agent exposes ${agentWithCaps.capabilities.tools_count} tools via ${agent.protocol || 'mcp'} protocol.</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                let html = `
+                    <div style="background: #f0f9ff; padding: 1rem; border-radius: 6px; border-left: 3px solid #0284c7; margin-bottom: 1.5rem;">
+                        <strong>Total Tools: ${tools.length}</strong>
+                        <p style="margin-top: 0.5rem; font-size: 0.9rem; color: #666;">This agent exposes ${tools.length} tools via ${agent.protocol || 'mcp'} protocol.</p>
+                    </div>
+                    <div class="tools-list">
+                `;
+
+                tools.forEach((tool, index) => {
+                    const hasSchema = tool.input_schema && Object.keys(tool.input_schema).length > 0;
+                    html += `
+                        <div class="tool-item">
+                            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 0.5rem;">
+                                <div class="tool-name">${index + 1}. ${tool.name}</div>
+                                ${hasSchema ? `<details style="font-size: 0.75rem; color: #667eea; cursor: pointer;">
+                                    <summary>Schema</summary>
+                                    <pre style="margin-top: 0.5rem; background: #f9fafb; padding: 0.5rem; border-radius: 4px; overflow-x: auto; font-size: 0.7rem; max-height: 200px;">${JSON.stringify(tool.input_schema, null, 2)}</pre>
+                                </details>` : ''}
+                            </div>
+                            ${tool.description ? `<div class="tool-description">${tool.description}</div>` : '<div class="tool-description" style="color: #999;">No description available</div>'}
+                        </div>
+                    `;
+                });
+
+                html += '</div>';
+                section.innerHTML = html;
+            } catch (error) {
+                section.innerHTML = `<div class="error-text">Failed to load tools: ${error.message}</div>`;
             }
         }
 
@@ -723,22 +897,92 @@
 
                 if (result.error) {
                     section.innerHTML = `<div style="color: #e53e3e; font-size: 0.9rem; padding: 0.75rem; background: #fff5f5; border-radius: 6px; border: 1px solid #feb2b2;">
-                        <strong>Error:</strong> Agent does not support list_authorized_properties tool yet.
+                        <strong>Error:</strong> ${result.error}
                     </div>`;
                     return;
                 }
 
                 if (result.properties && result.properties.length > 0) {
-                    section.innerHTML = '<div class="publishers-grid">' +
-                        result.properties.map(p => `
-                            <div class="publisher-item">
-                                <div class="publisher-domain">${p.identifier || p.domain || 'Unknown'}</div>
-                                <div style="font-size: 0.85rem; color: #666;">${p.type || 'domain'}</div>
-                                ${p.tags ? `<div style="margin-top: 0.5rem; font-size: 0.85rem;">Tags: ${p.tags.join(', ')}</div>` : ''}
-                                ${p.description ? `<div style="margin-top: 0.5rem; font-size: 0.85rem; color: #555;">${p.description}</div>` : ''}
-                            </div>
-                        `).join('') +
+                    // Group by verification status
+                    const verified = result.properties.filter(p => p.verified === true);
+                    const unverified = result.properties.filter(p => p.verified === false);
+                    const unchecked = result.properties.filter(p => p.verified === undefined);
+
+                    let html = '';
+
+                    if (verified.length > 0) {
+                        html += '<div style="margin-bottom: 1.5rem;">';
+                        html += '<h4 style="font-size: 1rem; margin-bottom: 1rem; color: #10b981;">✓ Verified Properties</h4>';
+                        html += '<div class="publishers-grid">' +
+                            verified.map(p => `
+                                <div class="publisher-item" style="border-left: 3px solid #10b981;">
+                                    <div style="display: flex; justify-content: between; align-items: start; gap: 0.5rem;">
+                                        <div style="flex: 1;">
+                                            <div class="publisher-domain">${p.identifier || p.domain || 'Unknown'}</div>
+                                            <div style="font-size: 0.85rem; color: #666; margin-top: 0.25rem;">
+                                                <strong>Type:</strong> ${p.type || 'domain'}
+                                                ${p.country ? ` | <strong>Country:</strong> ${p.country}` : ''}
+                                            </div>
+                                        </div>
+                                        <a href="${p.verification_url}" target="_blank" style="color: #10b981; text-decoration: none; font-size: 0.85rem; white-space: nowrap;" title="View adagents.json">
+                                            🔗 Verified
+                                        </a>
+                                    </div>
+                                    ${p.description ? `<div style="margin-top: 0.5rem; font-size: 0.85rem; color: #555;">${p.description}</div>` : ''}
+                                    ${p.tags && p.tags.length > 0 ? `
+                                        <div style="margin-top: 0.75rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                                            ${p.tags.map(tag => `<span style="padding: 0.25rem 0.5rem; background: #ede9fe; color: #5b21b6; border-radius: 4px; font-size: 0.75rem;">${tag}</span>`).join('')}
+                                        </div>
+                                    ` : ''}
+                                    ${p.metadata ? `<details style="margin-top: 0.75rem; font-size: 0.85rem;">
+                                        <summary style="cursor: pointer; color: #667eea;">Additional metadata</summary>
+                                        <pre style="margin-top: 0.5rem; background: #f9fafb; padding: 0.5rem; border-radius: 4px; overflow-x: auto;">${JSON.stringify(p.metadata, null, 2)}</pre>
+                                    </details>` : ''}
+                                </div>
+                            `).join('') +
                         '</div>';
+                        html += '</div>';
+                    }
+
+                    if (unverified.length > 0) {
+                        html += '<div style="margin-bottom: 1.5rem;">';
+                        html += '<h4 style="font-size: 1rem; margin-bottom: 1rem; color: #ef4444;">✗ Unverified Properties (Claims Not Authorized)</h4>';
+                        html += '<div class="publishers-grid">' +
+                            unverified.map(p => `
+                                <div class="publisher-item" style="border-left: 3px solid #ef4444; background: #fff5f5;">
+                                    <div style="display: flex; justify-content: space-between; align-items: start; gap: 0.5rem;">
+                                        <div style="flex: 1;">
+                                            <div class="publisher-domain">${p.identifier || p.domain || 'Unknown'}</div>
+                                            <div style="font-size: 0.85rem; color: #666; margin-top: 0.25rem;">${p.type || 'domain'}</div>
+                                        </div>
+                                        ${p.verification_url ? `<a href="${p.verification_url}" target="_blank" style="color: #ef4444; text-decoration: none; font-size: 0.85rem; white-space: nowrap;" title="Check adagents.json">
+                                            🔗 Check
+                                        </a>` : ''}
+                                    </div>
+                                    <div style="margin-top: 0.5rem; font-size: 0.8rem; color: #991b1b; background: #fee2e2; padding: 0.5rem; border-radius: 4px;">
+                                        <strong>⚠️ Warning:</strong> ${p.verification_error || 'This agent is not listed in the domain\'s .well-known/adagents.json file'}
+                                    </div>
+                                </div>
+                            `).join('') +
+                        '</div>';
+                        html += '</div>';
+                    }
+
+                    if (unchecked.length > 0) {
+                        html += '<div>';
+                        html += '<h4 style="font-size: 1rem; margin-bottom: 1rem; color: #f59e0b;">⚠️ Unchecked Properties</h4>';
+                        html += '<div class="publishers-grid">' +
+                            unchecked.map(p => `
+                                <div class="publisher-item" style="border-left: 3px solid #f59e0b;">
+                                    <div class="publisher-domain">${p.identifier || p.domain || 'Unknown'}</div>
+                                    <div style="font-size: 0.85rem; color: #666; margin-top: 0.25rem;">${p.type || 'domain'}</div>
+                                </div>
+                            `).join('') +
+                        '</div>';
+                        html += '</div>';
+                    }
+
+                    section.innerHTML = html;
                 } else {
                     section.innerHTML = `<div style="color: #666; font-size: 0.9rem;">No properties available from this agent yet.</div>`;
                 }
@@ -750,6 +994,243 @@
         async function fetchFormats(agent) {
             const section = document.getElementById('formats-section');
             section.innerHTML = '<div style="color: #666; font-size: 0.9rem;">Creative formats discovery coming soon...</div>';
+        }
+
+        async function fetchPublicProducts(agent) {
+            const section = document.getElementById('products-section');
+            section.innerHTML = '<div class="loading">Loading products...</div>';
+
+            try {
+                const response = await fetch(`/mcp`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        jsonrpc: '2.0',
+                        id: 1,
+                        method: 'tools/call',
+                        params: {
+                            name: 'get_products_for_agent',
+                            arguments: { agent_url: agent.url, params: {} }
+                        }
+                    })
+                });
+                const data = await response.json();
+
+                if (data.error) {
+                    section.innerHTML = `<div style="color: #666; font-size: 0.9rem;">Unable to fetch products: ${data.error.message || 'Unknown error'}</div>`;
+                    return;
+                }
+
+                const result = JSON.parse(data.result.content[0].resource.text);
+
+                if (result.error) {
+                    const isValidationError = result.error.includes('does not match') || result.error.includes('Input should be');
+                    section.innerHTML = `
+                        <div style="background: #fff7ed; padding: 1rem; border-radius: 6px; border-left: 3px solid #f59e0b;">
+                            <strong>${isValidationError ? 'Agent Requires Parameters' : 'Agent Error'}</strong>
+                            <div style="margin-top: 0.5rem; font-size: 0.9rem; color: #666;">
+                                ${isValidationError ? 'This agent requires specific targeting criteria (brief, brand_manifest, etc.) and does not support browsing public products.' : result.error}
+                            </div>
+                        </div>
+                    `;
+                    return;
+                }
+
+                const products = result.products || [];
+
+                if (products.length === 0) {
+                    section.innerHTML = '<div style="color: #666; font-size: 0.9rem;">No public products available (may require targeting)</div>';
+                    return;
+                }
+
+                let html = '<div style="display: grid; gap: 1rem;">';
+                products.forEach(product => {
+                    html += `
+                        <div style="background: #f9fafb; padding: 1rem; border-radius: 6px; border-left: 3px solid #667eea;">
+                            <div style="font-weight: 600; margin-bottom: 0.5rem;">${product.name || product.id || 'Unnamed Product'}</div>
+                            ${product.description ? `<div style="font-size: 0.9rem; color: #666; margin-bottom: 0.5rem;">${product.description}</div>` : ''}
+                            ${product.inventory_type ? `<div style="font-size: 0.85rem; color: #666;"><strong>Type:</strong> ${product.inventory_type}</div>` : ''}
+                            ${product.price ? `<div style="font-size: 0.85rem; color: #666;"><strong>Price:</strong> ${product.price.amount} ${product.price.currency}</div>` : ''}
+                            ${product.publisher_domain ? `<div style="font-size: 0.85rem; color: #666;"><strong>Publisher:</strong> ${product.publisher_domain}</div>` : ''}
+                        </div>
+                    `;
+                });
+                html += '</div>';
+
+                section.innerHTML = html;
+            } catch (error) {
+                section.innerHTML = `<div class="error-text">Failed to load products: ${error.message}</div>`;
+            }
+        }
+
+        async function fetchCreativeFormats(agent) {
+            const section = document.getElementById('creative-formats-section');
+            section.innerHTML = '<div class="loading">Loading formats...</div>';
+
+            try {
+                const response = await fetch(`/mcp`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        jsonrpc: '2.0',
+                        id: 1,
+                        method: 'tools/call',
+                        params: {
+                            name: 'list_creative_formats_for_agent',
+                            arguments: { agent_url: agent.url, params: {} }
+                        }
+                    })
+                });
+                const data = await response.json();
+
+                if (data.error) {
+                    section.innerHTML = `<div style="color: #666; font-size: 0.9rem;">Unable to fetch formats: ${data.error.message || 'Unknown error'}</div>`;
+                    return;
+                }
+
+                const result = JSON.parse(data.result.content[0].resource.text);
+
+                if (result.error) {
+                    section.innerHTML = `<div style="color: #666; font-size: 0.9rem;">${result.error}</div>`;
+                    return;
+                }
+
+                const formats = result.formats || [];
+
+                if (formats.length === 0) {
+                    section.innerHTML = '<div style="color: #666; font-size: 0.9rem;">No creative formats available</div>';
+                    return;
+                }
+
+                // Extract unique types for filtering
+                const types = [...new Set(formats.map(f => f.type).filter(Boolean))];
+
+                let html = `
+                    <div style="margin-bottom: 1rem; display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+                        <strong style="font-size: 0.9rem;">Filter:</strong>
+                        <button onclick="filterFormats('all')" class="format-filter-btn active" data-type="all" style="padding: 0.5rem 1rem; border: 1px solid #ddd; border-radius: 6px; background: white; cursor: pointer; font-size: 0.85rem;">
+                            All (${formats.length})
+                        </button>
+                        ${types.map(type => `
+                            <button onclick="filterFormats('${type}')" class="format-filter-btn" data-type="${type}" style="padding: 0.5rem 1rem; border: 1px solid #ddd; border-radius: 6px; background: white; cursor: pointer; font-size: 0.85rem; text-transform: capitalize;">
+                                ${type.replace(/_/g, ' ')} (${formats.filter(f => f.type === type).length})
+                            </button>
+                        `).join('')}
+                    </div>
+                    <div id="formats-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem;">
+                `;
+
+                formats.forEach((format, index) => {
+                    const dimensions = format.renders?.[0]?.dimensions;
+                    const width = dimensions?.width || dimensions?.max_width;
+                    const height = dimensions?.height || dimensions?.max_height;
+                    const isResponsive = dimensions?.min_width || dimensions?.min_height;
+
+                    html += `
+                        <div class="format-card" data-type="${format.type || 'unknown'}" style="background: white; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; transition: transform 0.2s, box-shadow 0.2s; cursor: pointer;" onclick="showFormatDetails(${index}, ${JSON.stringify(format).replace(/"/g, '&quot;')})">
+                            ${format.preview_image ? `
+                                <div style="width: 100%; height: 200px; background: #f3f4f6; display: flex; align-items: center; justify-content: center; overflow: hidden;">
+                                    <img src="${format.preview_image}" alt="${format.name}" style="max-width: 100%; max-height: 100%; object-fit: contain;" onerror="this.parentElement.innerHTML='<div style=&quot;color: #999; font-size: 3rem;&quot;>🎨</div>'">
+                                </div>
+                            ` : `
+                                <div style="width: 100%; height: 200px; background: #f3f4f6; display: flex; align-items: center; justify-content: center; color: #999; font-size: 3rem;">
+                                    🎨
+                                </div>
+                            `}
+                            <div style="padding: 1rem;">
+                                <div style="font-weight: 600; margin-bottom: 0.5rem; color: #111;">${format.name || format.format_id || 'Unnamed Format'}</div>
+                                ${width && height ? `
+                                    <div style="font-size: 0.85rem; color: #666; margin-bottom: 0.25rem;">
+                                        📐 ${isResponsive ? 'Responsive: ' : ''}${width}×${height}${dimensions?.unit ? dimensions.unit : 'px'}
+                                    </div>
+                                ` : ''}
+                                ${format.type ? `
+                                    <div style="display: inline-block; padding: 0.25rem 0.5rem; background: #ede9fe; color: #5b21b6; border-radius: 4px; font-size: 0.75rem; text-transform: capitalize; margin-top: 0.5rem;">
+                                        ${format.type.replace(/_/g, ' ')}
+                                    </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                    `;
+                });
+
+                html += '</div>';
+
+                section.innerHTML = html;
+
+                // Store formats for filtering
+                window.currentFormats = formats;
+
+            } catch (error) {
+                section.innerHTML = `<div class="error-text">Failed to load formats: ${error.message}</div>`;
+            }
+        }
+
+        function filterFormats(type) {
+            const cards = document.querySelectorAll('.format-card');
+            const buttons = document.querySelectorAll('.format-filter-btn');
+
+            buttons.forEach(btn => {
+                if (btn.dataset.type === type) {
+                    btn.classList.add('active');
+                    btn.style.background = '#667eea';
+                    btn.style.color = 'white';
+                    btn.style.borderColor = '#667eea';
+                } else {
+                    btn.classList.remove('active');
+                    btn.style.background = 'white';
+                    btn.style.color = '#333';
+                    btn.style.borderColor = '#ddd';
+                }
+            });
+
+            cards.forEach(card => {
+                if (type === 'all' || card.dataset.type === type) {
+                    card.style.display = 'block';
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+        }
+
+        function showFormatDetails(index, format) {
+            const modal = document.createElement('div');
+            modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 2rem;';
+            modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+
+            const dimensions = format.renders?.[0]?.dimensions;
+            const width = dimensions?.width || dimensions?.max_width;
+            const height = dimensions?.height || dimensions?.max_height;
+
+            modal.innerHTML = `
+                <div style="background: white; border-radius: 12px; max-width: 800px; max-height: 90vh; overflow: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3);" onclick="event.stopPropagation()">
+                    <div style="position: sticky; top: 0; background: white; border-bottom: 1px solid #e5e7eb; padding: 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+                        <h3 style="margin: 0; font-size: 1.3rem;">${format.name || format.format_id}</h3>
+                        <button onclick="this.closest('[style*=fixed]').remove()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #999;">×</button>
+                    </div>
+                    <div style="padding: 1.5rem;">
+                        ${format.preview_image ? `
+                            <div style="margin-bottom: 1.5rem; text-align: center;">
+                                <img src="${format.preview_image}" alt="${format.name}" style="max-width: 100%; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
+                            </div>
+                        ` : ''}
+                        ${format.description ? `<p style="color: #666; margin-bottom: 1.5rem;">${format.description}</p>` : ''}
+                        <div style="display: grid; gap: 1rem; margin-bottom: 1.5rem;">
+                            ${format.format_id ? `<div><strong>Format ID:</strong> <code style="background: #f3f4f6; padding: 0.25rem 0.5rem; border-radius: 4px;">${format.format_id}</code></div>` : ''}
+                            ${format.type ? `<div><strong>Type:</strong> <span style="text-transform: capitalize;">${format.type.replace(/_/g, ' ')}</span></div>` : ''}
+                            ${width && height ? `<div><strong>Dimensions:</strong> ${width}×${height}${dimensions?.unit || 'px'}</div>` : ''}
+                            ${dimensions?.min_width || dimensions?.min_height ? `<div><strong>Responsive:</strong> Yes (${dimensions.min_width || 0}×${dimensions.min_height || 0} to ${dimensions.max_width || width}×${dimensions.max_height || height})</div>` : ''}
+                        </div>
+                        ${format.example_url ? `
+                            <a href="${format.example_url}" target="_blank" style="display: inline-block; padding: 0.75rem 1.5rem; background: #667eea; color: white; text-decoration: none; border-radius: 6px; margin-top: 1rem;">
+                                View Examples & Demos →
+                            </a>
+                        ` : ''}
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(modal);
         }
     </script>
 </body>

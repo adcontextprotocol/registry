@@ -12,7 +12,7 @@ if (mode === "mcp") {
   });
 } else {
   const httpServer = new HTTPServer();
-  const port = parseInt(process.env.PORT || "3000", 10);
+  const port = parseInt(process.env.PORT || process.env.CONDUCTOR_PORT || "3000", 10);
   httpServer.start(port).catch((error) => {
     console.error("Failed to start HTTP server:", error);
     process.exit(1);

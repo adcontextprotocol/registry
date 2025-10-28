@@ -86,6 +86,59 @@ export class MCPServer {
             required: ["domain", "agent_url"],
           },
         },
+        {
+          name: "get_products_for_agent",
+          description:
+            "Query a sales agent for available products (proxy tool that calls get_products on the agent)",
+          inputSchema: {
+            type: "object",
+            properties: {
+              agent_url: {
+                type: "string",
+                description: "Agent URL to query",
+              },
+              params: {
+                type: "object",
+                description: "Parameters to pass to get_products (leave empty for public products)",
+              },
+            },
+            required: ["agent_url"],
+          },
+        },
+        {
+          name: "list_creative_formats_for_agent",
+          description:
+            "Query an agent for supported creative formats (proxy tool that calls list_creative_formats on the agent)",
+          inputSchema: {
+            type: "object",
+            properties: {
+              agent_url: {
+                type: "string",
+                description: "Agent URL to query",
+              },
+              params: {
+                type: "object",
+                description: "Parameters to pass to list_creative_formats",
+              },
+            },
+            required: ["agent_url"],
+          },
+        },
+        {
+          name: "get_properties_for_agent",
+          description:
+            "Query a sales agent for authorized properties (proxy tool that calls list_authorized_properties on the agent)",
+          inputSchema: {
+            type: "object",
+            properties: {
+              agent_url: {
+                type: "string",
+                description: "Agent URL to query",
+              },
+            },
+            required: ["agent_url"],
+          },
+        },
       ],
     }));
 
@@ -143,6 +196,179 @@ export class MCPServer {
               },
             ],
           };
+        }
+
+        case "get_products_for_agent": {
+          const agentUrl = args?.agent_url as string;
+          const params = args?.params || {};
+
+          try {
+            const { AgentClient } = await import("@adcp/client");
+            const client = new AgentClient({
+              id: "registry",
+              name: "Registry Query",
+              agent_uri: agentUrl,
+              protocol: "mcp",
+            });
+
+            const result = await client.executeTask("get_products", params);
+
+            if (!result.success) {
+              return {
+                content: [
+                  {
+                    type: "resource",
+                    resource: {
+                      uri: `adcp://products/${agentUrl}`,
+                      mimeType: "application/json",
+                      text: JSON.stringify({ error: result.error || "Failed to get products" }),
+                    },
+                  },
+                ],
+              };
+            }
+
+            return {
+              content: [
+                {
+                  type: "resource",
+                  resource: {
+                    uri: `adcp://products/${agentUrl}`,
+                    mimeType: "application/json",
+                    text: JSON.stringify(result.data),
+                  },
+                },
+              ],
+            };
+          } catch (error: any) {
+            return {
+              content: [
+                {
+                  type: "resource",
+                  resource: {
+                    uri: `adcp://products/${agentUrl}`,
+                    mimeType: "application/json",
+                    text: JSON.stringify({ error: error.message }),
+                  },
+                },
+              ],
+            };
+          }
+        }
+
+        case "list_creative_formats_for_agent": {
+          const agentUrl = args?.agent_url as string;
+          const params = args?.params || {};
+
+          try {
+            const { AgentClient } = await import("@adcp/client");
+            const client = new AgentClient({
+              id: "registry",
+              name: "Registry Query",
+              agent_uri: agentUrl,
+              protocol: "mcp",
+            });
+
+            const result = await client.executeTask("list_creative_formats", params);
+
+            if (!result.success) {
+              return {
+                content: [
+                  {
+                    type: "resource",
+                    resource: {
+                      uri: `adcp://formats/${agentUrl}`,
+                      mimeType: "application/json",
+                      text: JSON.stringify({ error: result.error || "Failed to list formats" }),
+                    },
+                  },
+                ],
+              };
+            }
+
+            return {
+              content: [
+                {
+                  type: "resource",
+                  resource: {
+                    uri: `adcp://formats/${agentUrl}`,
+                    mimeType: "application/json",
+                    text: JSON.stringify(result.data),
+                  },
+                },
+              ],
+            };
+          } catch (error: any) {
+            return {
+              content: [
+                {
+                  type: "resource",
+                  resource: {
+                    uri: `adcp://formats/${agentUrl}`,
+                    mimeType: "application/json",
+                    text: JSON.stringify({ error: error.message }),
+                  },
+                },
+              ],
+            };
+          }
+        }
+
+        case "get_properties_for_agent": {
+          const agentUrl = args?.agent_url as string;
+
+          try {
+            const { AgentClient } = await import("@adcp/client");
+            const client = new AgentClient({
+              id: "registry",
+              name: "Registry Query",
+              agent_uri: agentUrl,
+              protocol: "mcp",
+            });
+
+            const result = await client.executeTask("list_authorized_properties", {});
+
+            if (!result.success) {
+              return {
+                content: [
+                  {
+                    type: "resource",
+                    resource: {
+                      uri: `adcp://properties/${agentUrl}`,
+                      mimeType: "application/json",
+                      text: JSON.stringify({ error: result.error || "Failed to list properties" }),
+                    },
+                  },
+                ],
+              };
+            }
+
+            return {
+              content: [
+                {
+                  type: "resource",
+                  resource: {
+                    uri: `adcp://properties/${agentUrl}`,
+                    mimeType: "application/json",
+                    text: JSON.stringify(result.data),
+                  },
+                },
+              ],
+            };
+          } catch (error: any) {
+            return {
+              content: [
+                {
+                  type: "resource",
+                  resource: {
+                    uri: `adcp://properties/${agentUrl}`,
+                    mimeType: "application/json",
+                    text: JSON.stringify({ error: error.message }),
+                  },
+                },
+              ],
+            };
+          }
         }
 
         default:

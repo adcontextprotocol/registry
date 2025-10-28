@@ -34,6 +34,12 @@ export interface AgentStats {
 
 export interface AgentCapabilities {
   tools_count: number;
+  tools?: Array<{
+    name: string;
+    description: string;
+    input_schema: any;
+    verified_at: string;
+  }>;
   standard_operations?: {
     can_search_inventory: boolean;
     can_get_availability: boolean;
