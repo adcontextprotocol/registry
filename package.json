@@ -16,7 +16,7 @@
     "test:coverage": "c8 vitest run"
   },
   "dependencies": {
-    "@adcp/client": "^2.3.2",
+    "@adcp/client": "^2.5.5",
     "@modelcontextprotocol/sdk": "^1.0.4",
     "express": "^4.18.2"
   },

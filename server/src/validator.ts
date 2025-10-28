@@ -43,7 +43,28 @@ export class AgentValidator {
         };
       }
 
+      const contentType = response.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        return {
+          authorized: false,
+          domain: normalizedDomain,
+          agent_url: agentUrl,
+          checked_at: new Date().toISOString(),
+          error: `File does not exist or returns ${contentType} instead of JSON`,
+        };
+      }
+
       const data = await response.json() as AdAgentsJson;
+
+      if (!data.authorized_agents || !Array.isArray(data.authorized_agents)) {
+        return {
+          authorized: false,
+          domain: normalizedDomain,
+          agent_url: agentUrl,
+          checked_at: new Date().toISOString(),
+          error: "Invalid adagents.json format: missing authorized_agents array",
+        };
+      }
 
       const normalizedAgentUrl = agentUrl.replace(/\/$/, "");
       const isAuthorized = data.authorized_agents.some(
@@ -58,12 +79,23 @@ export class AgentValidator {
         source: adagentsUrl,
       };
     } catch (error) {
+      let errorMsg = "Unknown error";
+      if (error instanceof Error) {
+        if (error.message.includes("Unexpected token")) {
+          errorMsg = "File does not exist or is not valid JSON";
+        } else if (error.name === "AbortError") {
+          errorMsg = "Request timed out";
+        } else {
+          errorMsg = error.message;
+        }
+      }
+
       return {
         authorized: false,
         domain: normalizedDomain,
         agent_url: agentUrl,
         checked_at: new Date().toISOString(),
-        error: error instanceof Error ? error.message : "Unknown error",
+        error: errorMsg,
       };
     }
   }

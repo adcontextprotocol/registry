@@ -1,4 +1,3 @@
-import { createMCPClient, createA2AClient } from "@adcp/client";
 import type { Agent } from "./types.js";
 
 export interface ToolCapability {
@@ -96,46 +95,53 @@ export class CapabilityDiscovery {
   }
 
   private async discoverMCPTools(url: string): Promise<ToolCapability[]> {
-    const client = createMCPClient(url);
-
     try {
-      // MCP client from @adcp/client uses callTool, not request
-      const response = await client.callTool("tools/list", {});
+      // Use ADCPClient's getAgentInfo which works for both MCP and A2A
+      const { ADCPClient } = await import("@adcp/client");
+      const client = new ADCPClient({
+        id: "discovery",
+        name: "Discovery Client",
+        agent_uri: url,
+        protocol: "mcp",
+      });
 
-      if (!response?.tools || !Array.isArray(response.tools)) {
-        return [];
-      }
+      const agentInfo = await client.getAgentInfo();
+      console.log(`MCP discovery for ${url}: found ${agentInfo.tools.length} tools`);
 
-      return response.tools.map((tool: any) => ({
+      return agentInfo.tools.map((tool: any) => ({
         name: tool.name,
         description: tool.description || "",
-        input_schema: tool.inputSchema || {},
+        input_schema: tool.inputSchema || tool.parameters || {},
         verified_at: new Date().toISOString(),
       }));
-    } catch (error) {
+    } catch (error: any) {
+      console.error(`MCP discovery failed for ${url}:`, error.message);
       return [];
     }
   }
 
   private async discoverA2ATools(url: string): Promise<ToolCapability[]> {
-    const client = createA2AClient(url);
-
     try {
-      const response = await client.callTool("list_skills", {});
+      // Use ADCPClient's getAgentInfo which works for both MCP and A2A
+      const { ADCPClient } = await import("@adcp/client");
+      const client = new ADCPClient({
+        id: "discovery",
+        name: "Discovery Client",
+        agent_uri: url,
+        protocol: "a2a",
+      });
 
-      if (!response?.result?.artifacts?.[0]?.parts?.[0]?.data?.skills) {
-        return [];
-      }
+      const agentInfo = await client.getAgentInfo();
+      console.log(`A2A discovery for ${url}: found ${agentInfo.tools.length} tools`);
 
-      const skills = response.result.artifacts[0].parts[0].data.skills;
-
-      return skills.map((skill: any) => ({
-        name: skill.name,
-        description: skill.description || "",
-        input_schema: skill.parameters || {},
+      return agentInfo.tools.map((tool: any) => ({
+        name: tool.name,
+        description: tool.description || "",
+        input_schema: tool.inputSchema || tool.parameters || {},
         verified_at: new Date().toISOString(),
       }));
-    } catch (error) {
+    } catch (error: any) {
+      console.error(`A2A discovery failed for ${url}:`, error.message);
       return [];
     }
   }
@@ -143,12 +149,13 @@ export class CapabilityDiscovery {
   private analyzeSalesCapabilities(tools: ToolCapability[]): StandardOperations {
     const toolNames = new Set(tools.map((t) => t.name.toLowerCase()));
 
+    // Based on actual AdCP spec tools from @adcp/client types
     return {
-      can_search_inventory: toolNames.has("search_inventory") || toolNames.has("get_products"),
-      can_get_availability: toolNames.has("get_availability") || toolNames.has("check_availability"),
-      can_reserve_inventory: toolNames.has("reserve_inventory") || toolNames.has("create_reservation"),
-      can_get_pricing: toolNames.has("get_pricing") || toolNames.has("get_products"),
-      can_create_order: toolNames.has("create_order") || toolNames.has("create_media_buy"),
+      can_search_inventory: toolNames.has("get_products"),
+      can_get_availability: toolNames.has("get_products"), // Included in get_products
+      can_reserve_inventory: toolNames.has("create_media_buy"), // Part of media buy creation
+      can_get_pricing: toolNames.has("get_products"), // Included in get_products
+      can_create_order: toolNames.has("create_media_buy"),
       can_list_properties: toolNames.has("list_authorized_properties"),
     };
   }

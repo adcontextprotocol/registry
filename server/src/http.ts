@@ -100,6 +100,7 @@ export class HTTPServer {
             const capProfile = results[resultIndex++] as any;
             enrichedAgent.capabilities = {
               tools_count: capProfile.discovered_tools.length,
+              tools: capProfile.discovered_tools,
               standard_operations: capProfile.standard_operations,
               creative_capabilities: capProfile.creative_capabilities,
               signals_capabilities: capProfile.signals_capabilities,
@@ -451,6 +452,42 @@ export class HTTPServer {
                     required: ["agent_url"],
                   },
                 },
+                {
+                  name: "get_products_for_agent",
+                  description: "Query a sales agent for available products (proxy tool that calls get_products on the agent)",
+                  inputSchema: {
+                    type: "object",
+                    properties: {
+                      agent_url: {
+                        type: "string",
+                        description: "Agent URL to query",
+                      },
+                      params: {
+                        type: "object",
+                        description: "Parameters to pass to get_products (leave empty for public products)",
+                      },
+                    },
+                    required: ["agent_url"],
+                  },
+                },
+                {
+                  name: "list_creative_formats_for_agent",
+                  description: "Query an agent for supported creative formats (proxy tool that calls list_creative_formats on the agent)",
+                  inputSchema: {
+                    type: "object",
+                    properties: {
+                      agent_url: {
+                        type: "string",
+                        description: "Agent URL to query",
+                      },
+                      params: {
+                        type: "object",
+                        description: "Parameters to pass to list_creative_formats",
+                      },
+                    },
+                    required: ["agent_url"],
+                  },
+                },
               ],
             },
           });
@@ -626,6 +663,96 @@ export class HTTPServer {
                 error: {
                   code: -32603,
                   message: `Failed to get properties: ${error.message}`,
+                },
+              });
+              return;
+            }
+          }
+
+          if (name === "get_products_for_agent") {
+            const agentUrl = args?.agent_url as string;
+            const params = args?.params || {};
+
+            try {
+              const { AgentClient } = await import("@adcp/client");
+              const client = new AgentClient({
+                id: "registry",
+                name: "Registry Query",
+                agent_uri: agentUrl,
+                protocol: "mcp",
+              });
+
+              const result = await client.executeTask("get_products", params);
+
+              res.json({
+                jsonrpc: "2.0",
+                id,
+                result: {
+                  content: [
+                    {
+                      type: "resource",
+                      resource: {
+                        uri: `adcp://products/${agentUrl}`,
+                        mimeType: "application/json",
+                        text: JSON.stringify(result.success ? result.data : { error: result.error || "Failed to get products" }),
+                      },
+                    },
+                  ],
+                },
+              });
+              return;
+            } catch (error: any) {
+              res.json({
+                jsonrpc: "2.0",
+                id,
+                error: {
+                  code: -32603,
+                  message: `Failed to get products: ${error.message}`,
+                },
+              });
+              return;
+            }
+          }
+
+          if (name === "list_creative_formats_for_agent") {
+            const agentUrl = args?.agent_url as string;
+            const params = args?.params || {};
+
+            try {
+              const { AgentClient } = await import("@adcp/client");
+              const client = new AgentClient({
+                id: "registry",
+                name: "Registry Query",
+                agent_uri: agentUrl,
+                protocol: "mcp",
+              });
+
+              const result = await client.executeTask("list_creative_formats", params);
+
+              res.json({
+                jsonrpc: "2.0",
+                id,
+                result: {
+                  content: [
+                    {
+                      type: "resource",
+                      resource: {
+                        uri: `adcp://formats/${agentUrl}`,
+                        mimeType: "application/json",
+                        text: JSON.stringify(result.success ? result.data : { error: result.error || "Failed to list formats" }),
+                      },
+                    },
+                  ],
+                },
+              });
+              return;
+            } catch (error: any) {
+              res.json({
+                jsonrpc: "2.0",
+                id,
+                error: {
+                  code: -32603,
+                  message: `Failed to list formats: ${error.message}`,
                 },
               });
               return;
