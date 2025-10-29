@@ -29,32 +29,33 @@ export class CrawlerService {
     }));
 
     try {
-      // Temporarily suppress console errors during crawl to avoid noise from expected failures
-      const originalConsoleError = console.error;
-      console.error = (...args: any[]) => {
-        const message = args.join(' ');
-        // Only log non-crawler errors
-        if (!message.includes('Failed to fetch adagents.json') &&
-            !message.includes('property-crawler')) {
-          originalConsoleError.apply(console, args);
-        }
-      };
-
       const result = await this.crawler.crawlAgents(agentInfos);
-
-      // Restore console.error
-      console.error = originalConsoleError;
 
       this.lastCrawl = new Date();
       this.lastResult = result;
       this.crawling = false;
 
       console.log(
-        `Crawl complete: ${result.totalProperties} properties from ${result.successfulAgents}/${agents.length} agents`
+        `Crawl complete: ${result.totalProperties} properties from ${result.successfulAgents}/${agents.length} agents, checked ${result.totalPublisherDomains} publisher domains`
       );
 
       if (result.failedAgents > 0) {
         console.log(`Note: ${result.failedAgents} agent(s) failed (domains without adagents.json files)`);
+      }
+
+      if (result.errors.length > 0) {
+        console.log(`\nCrawl errors by domain:`);
+        const errorsByDomain = new Map<string, string[]>();
+        for (const err of result.errors) {
+          const domain = err.agent_url;
+          if (!errorsByDomain.has(domain)) {
+            errorsByDomain.set(domain, []);
+          }
+          errorsByDomain.get(domain)!.push(err.error);
+        }
+        for (const [domain, errors] of errorsByDomain) {
+          console.log(`  ${domain}: ${errors.join('; ')}`);
+        }
       }
 
       return result;
