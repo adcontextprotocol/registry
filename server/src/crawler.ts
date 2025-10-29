@@ -9,7 +9,7 @@ export class CrawlerService {
   private intervalId: NodeJS.Timeout | null = null;
 
   constructor() {
-    this.crawler = new PropertyCrawler();
+    this.crawler = new PropertyCrawler({ logLevel: 'debug' });
   }
 
   async crawlAllAgents(agents: Agent[]): Promise<CrawlResult> {
