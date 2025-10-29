@@ -58,6 +58,13 @@ export class CrawlerService {
         }
       }
 
+      if (result.warnings && result.warnings.length > 0) {
+        console.log(`\nCrawl warnings:`);
+        for (const warning of result.warnings) {
+          console.log(`  ${warning.domain}: ${warning.message}`);
+        }
+      }
+
       return result;
     } catch (error) {
       console.error("Crawl failed:", error);
@@ -113,6 +120,7 @@ export class CrawlerService {
       successfulAgents: 0,
       failedAgents: 0,
       errors: [],
+      warnings: [],
     };
   }
 }
